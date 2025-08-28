@@ -1,0 +1,91 @@
+import dotenv from "dotenv"
+dotenv.config()
+
+import WebSocket, {WebSocketServer} from "ws";
+import { createClient } from "redis";
+import type {IUserRequest} from "./interfaces/index.js";
+import { v4 as uuidv4 } from "uuid";
+import { defaultList } from "./constants/index.js";
+
+const subscriber = createClient({url:process.env.REDIS_DB_URL!});
+subscriber.connect();
+
+interface ISocket extends WebSocket{
+  id?:string
+}
+
+interface UserData{
+  socket:ISocket,
+  list:string[]
+}
+
+const activeUsers: Map<string, UserData>  = new Map();
+const requestedSymbols: Set<string> = new Set();
+
+function sendMarkPriceToUsers(data:any){
+  const {markPrice,symbol}=data;
+  const response ={
+    symbol,
+    markPrice
+  }
+  const responseStr=JSON.stringify(response)
+  for(const [socketId,userData] of activeUsers){
+    const {list,socket}=userData;
+    if(list.includes(symbol)){
+      socket.send(responseStr)
+    }
+  }
+}
+
+defaultList.forEach((symbol)=>{
+  if(!requestedSymbols.has){
+    requestedSymbols.add(symbol)
+    subscriber.subscribe(symbol,sendMarkPriceToUsers)
+  }
+})
+
+
+
+
+const wss = new WebSocketServer({ port: 3001 });
+wss.on('connection',(socket:ISocket)=>{
+    socket.id=uuidv4()    
+    console.log('New client connected at websocket_server');
+    activeUsers.set(socket.id,{
+      socket,
+      list:defaultList
+    })
+
+    socket.on('message',(data:string)=>{
+      try {
+        const response:IUserRequest=JSON.parse(data)
+        console.log('data from client : ',response);
+        if(response.request=='update_my_list'){
+          const list = response.list;
+          if(Array.isArray(list)){
+            const user=activeUsers.get(socket.id)
+            if(user){
+              user.list=list
+              list.forEach((symbol)=>{
+                if(!requestedSymbols.has(symbol)){
+                  subscriber.subscribe(symbol,(data)=>{
+                    console.log('data received from pub-sub for ',symbol,' is : ',data);
+                  })
+                  requestedSymbols.add(symbol)
+                }
+              })
+            }
+          }
+        }
+      } catch (error) {
+        console.log('ERROR : ',error);
+      }
+
+    })
+})
+
+setInterval(()=>{
+  console.log('activeUsers : ',activeUsers);
+  console.log('requestedSymbols : ',requestedSymbols);
+
+},5000)

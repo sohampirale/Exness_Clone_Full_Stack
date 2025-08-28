@@ -1,0 +1,28 @@
+{
+  "name": "websocket_server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/websocket.js",
+  "scripts": {
+    "dev": "concurrently \"tsc -w\" \"nodemon dist/websocket.js\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "type": "module",
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.2.1",
+    "nodemon": "^3.1.10",
+    "redis": "^5.8.2",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/ws": "^8.18.1",
+    "concurrently": "^9.2.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}
