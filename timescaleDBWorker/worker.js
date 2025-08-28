@@ -55,6 +55,7 @@ async function dumpIntoTimescaleDB(){
         }
     }
 
+    
     const queries=[]
     const times=new Map()
     Object.entries(finalData).map(([symbol,data])=>{
