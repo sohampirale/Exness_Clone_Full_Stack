@@ -1,12 +1,3 @@
-/*
-  Warnings:
-
-  - You are about to drop the `BINANCE_MARK_PRICE` table. If the table is not empty, all the data it contains will be lost.
-
-*/
--- DropTable
-DROP TABLE "public"."BINANCE_MARK_PRICE";
-
 -- CreateTable
 CREATE TABLE "public"."binance_mark_prices" (
     "time" TIMESTAMP(3) NOT NULL,
@@ -15,3 +6,6 @@ CREATE TABLE "public"."binance_mark_prices" (
 
     CONSTRAINT "binance_mark_prices_pkey" PRIMARY KEY ("time","symbol")
 );
+
+-- CreateIndex
+CREATE INDEX "binance_mark_prices_time_idx" ON "public"."binance_mark_prices"("time" DESC);
