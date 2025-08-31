@@ -157,9 +157,10 @@ cron.schedule("0 0 * * * *", () => {
 
 async function queryBitcoinPerminute(){
     try {
-        const response = await prisma.$queryRawUnsafe(`SELECT * FROM candles_1m
-                WHERE symbol='BTCUSDT';`)
-            console.log('response[5].high is : ',response[5].high);
+
+        const response = await prisma.candles_1m.findMany()
+
+        console.log('response[5].high is : ',response[5].high);
     } catch (error) {
         console.log('Failed to retrive bitcoin 1m : ',error);
         
