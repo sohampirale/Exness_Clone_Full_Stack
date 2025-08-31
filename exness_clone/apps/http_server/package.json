@@ -14,7 +14,8 @@
     "express": "^5.1.0",
     "prisma": "^6.15.0",
     "uuid": "^11.1.0",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "db":"*"
   },
   "type": "module",
   "devDependencies": {

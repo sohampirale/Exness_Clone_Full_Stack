@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model binance_mark_prices {
+  time   DateTime
+  symbol String
+  price  Decimal
+
+  @@id([time, symbol])
+  @@index([time(sort: Desc)])
+}
+
+
+//Uncomment them and run npx prisma genearate if you want to prisma functionality on materialized views (candles_1m,candles_5m,candles_1h)
+//instead of $executeRawUnsafe or $queryRawUnsafe
+//DO NOT RUN npx prisma migrate after uncommenting these lines below these only for generating client and using in code with less friction
+
+/* 
+model candles_1m {
+  bucket DateTime
+  symbol String
+  open   Decimal
+  high   Decimal
+  low    Decimal
+  close  Decimal
+
+  @@id([bucket, symbol])
+}
+
+model candles_5m {
+  bucket DateTime
+  symbol String
+  open   Decimal
+  high   Decimal
+  low    Decimal
+  close  Decimal
+
+  @@id([bucket, symbol])
+}
+
+model candles_1h {
+  bucket DateTime
+  symbol String
+  open   Decimal
+  high   Decimal
+  low    Decimal
+  close  Decimal
+
+  @@id([bucket, symbol])
+}
+*/
