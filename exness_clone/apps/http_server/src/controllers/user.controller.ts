@@ -38,9 +38,11 @@ export async function userSignup(req: Request, res: Response) {
             }
         }
 
-        user.bal=bal
-
-        activeUsers[user.id]=user
+        const userData={
+            user,
+            bal
+        }
+        activeUsers[user.id]=userData
 
         const accessToken = generateAccessToken({
             id: user.id,
@@ -94,9 +96,11 @@ export async function userSignin(req: Request, res: Response) {
             }
         }
 
-        user.bal=bal
-
-        activeUsers[user.id]=user
+        const userData={
+            user,
+            bal
+        }
+        activeUsers[user.id]=userData
 
         const accessToken=generateAccessToken({
             id:user.id,

@@ -2,6 +2,7 @@ import dotnev from 'dotenv'
 dotnev.config()
 import WebSocket from "ws"
 import { createClient } from "redis";
+import { generateDecreasedSellPrice, generateIncreasedBuyPrice } from './priceInlfator.js';
 
 const wsUrl='wss://fstream.binance.com/ws/!markPrice@arr@1s'
 
@@ -25,7 +26,11 @@ ws.on("message",async (msg) => {
   }
   allData.forEach(data => {
     const {e:eventType,E:eventTime,s:symbol,p:markPrice,i:indexPrice,P:estimatedSettlePrice,r:fundingRate,T:nextFundingTime}=data;
-    publisher.publish(symbol,markPrice)
+    publisher.publish(symbol,{
+      markPrice,
+      buyPrice:generateIncreasedBuyPrice(),
+      sellPrice:generateDecreasedSellPrice()
+    })
     DBData[symbol]=markPrice
   });
   console.log('published live data to redis pub sub');

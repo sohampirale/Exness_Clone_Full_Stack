@@ -8,6 +8,7 @@ import cookieParser from "cookie-parser"
 //routers
 import candlesRouter from "./routes/candles.routes.js";
 import userRouter from "./routes/user.routes.js";
+import orderRouter from "./routes/order.routes.js";
 
 import { activeUsers } from "./variables/index.js";
 
@@ -16,6 +17,7 @@ app.use(cookieParser())
 
 app.use("/api/v1/candles",candlesRouter)
 app.use("/api/v1/user",userRouter)
+app.use("/api/v1/order",orderRouter)
 
 app.get('/',(req,res)=>{
     return res.send("Hello World from http-server")
@@ -25,7 +27,7 @@ app.listen(3001,()=>{
     console.log('Server listening on port 3001');
 })
 
-setTimeout(()=>{
+setInterval(()=>{
     console.log('activeUsers : ',activeUsers);
     
-})
+},10000)
