@@ -24,13 +24,14 @@ ws.on("message",async (msg) => {
   const DBData={
     time:Date.now()
   }
-  allData.forEach(data => {
-    const {e:eventType,E:eventTime,s:symbol,p:markPrice,i:indexPrice,P:estimatedSettlePrice,r:fundingRate,T:nextFundingTime}=data;
-    publisher.publish(symbol,{
+  allData.forEach(async(data) => {
+    const {e:eventType,E:eventTime,s:symbol,p:markPriceStr,i:indexPrice,P:estimatedSettlePrice,r:fundingRate,T:nextFundingTime}=data;
+    const markPrice=Number(markPriceStr)
+    await publisher.publish(symbol,JSON.stringify({
       markPrice,
-      buyPrice:generateIncreasedBuyPrice(),
-      sellPrice:generateDecreasedSellPrice()
-    })
+      buyPrice:generateIncreasedBuyPrice(markPrice),
+      sellPrice:generateDecreasedSellPrice(markPrice)
+    }))
     DBData[symbol]=markPrice
   });
   console.log('published live data to redis pub sub');
