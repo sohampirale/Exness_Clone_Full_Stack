@@ -1,68 +1,119 @@
 import { response, type Request, type Response } from "express";
-import { users } from "../variables/index.js";
+import { activeUsers, users } from "../variables/index.js";
 import ApiResponse from "../lib/ApiResponse.js";
-import {v4 as uuidv4} from "uuid"
+import prisma from "db/client"
+import { generateAccessToken } from "../helpers/token.js";
 
-export async function userSignup(req:Request,res:Response){
+export async function userSignup(req: Request, res: Response) {
     try {
-        const {username,email,password}=req.body;
-        let exists=false;
-        for(let i=0;i<users.length;i++){
-            if(users[i]?.username==username || users[i]?.email==email){
-                exists=true;
-                break;
+        const { username, email, password } = req.body;
+
+        const existingUser = await prisma.user.findFirst({
+            where: {
+                OR: [{
+                    email
+                }, {
+                    username
+                }]
             }
+        })
+
+        if (existingUser) {
+            return res.status(409).json(
+                new ApiResponse(false, "User already exists with that username or email")
+            )
         }
-        if(exists){
-            return res.status(409).json(new ApiResponse(false,"Username or email already taken"))
-        }
-        const user={
-            userId:uuidv4(),
-            username,
-            password,
-            email,
-            balance:{
-                usd:{
-                    reserved:5000,
-                    activeSellOrders:[]
-                }
+
+        const user = await prisma.user.create({
+            data: {
+                username,
+                email,
+                password
+            }
+        })
+
+        const bal={
+            usd:{
+                reserved:5000
             }
         }
 
-        users.push(user)
-        return res.status(201).json(
-            new ApiResponse(true,"User signup successfully")
-        )
+        user.bal=bal
+
+        activeUsers[user.id]=user
+
+        const accessToken = generateAccessToken({
+            id: user.id,
+            username,
+            email
+        });
+
+        return res
+            .cookie("accessToken", accessToken, {
+                httpOnly: true, // prevents JS access
+            })
+            .status(201).json(
+                new ApiResponse(true, "User signup successfully")
+            )
     } catch (error) {
         return res.status(500).json(
-            new ApiResponse(true,"Failed to signup the user")
+            new ApiResponse(true, "Failed to signup the user")
         )
     }
 }
 
-export async function userSignin(req:Request,res:Response){
+export async function userSignin(req: Request, res: Response) {
     try {
-        const {username,password}=req.body;
+        const { identifier, password } = req.body;
 
-        for(let i=0;i<users.length;i++){
-            if(users[i]?.username==username){
-                if(users[i]?.password==password){
-                    return res.status(200).json(
-                        new ApiResponse(true,"Login successfull")
-                    )
-                } else {
-                    return response.status(400).json(
-                        new ApiResponse(false,"Incorrect password")
-                    )
-                }
+         const user = await prisma.user.findFirst({
+            where: {
+                OR: [{
+                    email:identifier
+                }, {
+                    username:identifier
+                }]
+            }
+        })
+
+        if (!user) {
+            return res.status(404).json(
+                new ApiResponse(false, "User with gievn username or email does not exists")
+            )
+        }
+
+        if(user.password!=password){
+            return res.status(400).json(
+                new ApiResponse(false, "Incorrect password")
+            )
+        }
+        
+        const bal={
+            usd:{
+                reserved:5000
             }
         }
-        return res.status(404).json(
-            new ApiResponse(false,"User not found with that username")
+
+        user.bal=bal
+
+        activeUsers[user.id]=user
+
+        const accessToken=generateAccessToken({
+            id:user.id,
+            username:user.username,
+            email:user.email
+        })
+
+        return res
+        .cookie("accessToken",accessToken,{
+            httpOnly: true, 
+        })
+        .status(200).json(
+            new ApiResponse(true, "Login successfull")
         )
     } catch (error) {
         return res.status(500).json(
-            new ApiResponse(false,"Failed to signin user")
+            new ApiResponse(false, "Failed to signin")
         )
     }
 }

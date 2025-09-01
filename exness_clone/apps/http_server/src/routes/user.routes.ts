@@ -20,5 +20,4 @@ userRouter.route("/signin")
     .post(userSignin)
 
 
-userRouter.route("/candles")
-    .get()
+export default userRouter;
