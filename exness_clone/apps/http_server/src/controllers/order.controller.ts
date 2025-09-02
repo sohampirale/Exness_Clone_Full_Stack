@@ -2,8 +2,12 @@ import type { Request, Response } from "express";
 import ApiResponse from "../lib/ApiResponse.js";
 import type { ExpressRequest } from "../interfaces/index.js";
 import { createClient } from "redis";
-import { activeUsers, livePrices } from "../variables/index.js";
+import { activePQS, activeUsers, livePrices } from "../variables/index.js";
 import {v4 as uuidv4} from "uuid"
+
+
+import { Heap } from 'heap-js';
+
 
 /**
  * action == 'BUY'
@@ -20,21 +24,27 @@ import {v4 as uuidv4} from "uuid"
  * 2.retrive the currenty live price of that symbol
  * 3.calculate the amount that is allocated for user (livePrice*qty)
  * 4.check if the margin mentioned by user is less tha what he actualy has in reserved as well as greater than 0
- * 4.put that amout into liveUsers[req.user.id].bal.usd.
+ * 5.calculate the stoppoint for that order (margin/qty)+price(live price of that stock)
+ * 6.substract the margin from reserved amount and put that margin into newOrder object
+ * 7.create the newOrder object and push it onto the queue
+ * 8.push that newOrder into activeUsers[req.user.id].activeSellOrders
+ * 9.Return response
  */
 
 export async function openOrder(req:ExpressRequest,res:Response){
     try {
         console.log('req.user : ',req.user);
-        const {symbol,qty:qtyStr,action,stoploss}=req.query;
+        const {action}=req.query
         if(action=='BUY'){
+            const {symbol,qty:qtyStr,stoploss}=req.query;
+
+            const qty=Number(qtyStr)
             if(!symbol || !qtyStr || !action || !stoploss){
                 return res.status(400).json(
                     new ApiResponse(false,`Invalid data provided`)
                 )     
             }
-    
-            const qty=Number(qtyStr)
+            
             const livePriceData=livePrices.get(symbol);
             const liveBuyPrice =livePriceData?.buyPrice
             console.log('livePriceData : ',livePriceData);
@@ -93,8 +103,60 @@ export async function openOrder(req:ExpressRequest,res:Response){
             )     
 
         } else if(action=='SELL'){
+            const {symbol,qty:qtyStr,margin:marginStr}=req.query;
+
+            if(!activePQS[symbol]){
+                activePQS[symbol]=new Heap((obj1:any,obj2:any)=>obj1.stopPrice-obj2.stopPrice)
+            }
+            const qty=Number(qtyStr)
+            const margin = Number(marginStr)
+            if(margin<=0){
+                return res.status(400).json(
+                   new ApiResponse(false,"Margin cannot be less than 0")
+                )
+            }
+
+            const livePriceData=livePrices.get(symbol);
+            const livePrice=livePriceData.sellPrice;
+            console.log('Live sell price of ',symbol,' is : ',livePrice);
+            const reservedBal=activeUsers[req.user.id]?.bal?.usd?.reserved;
+            if(!reservedBal){
+                return res.status(404).json(
+                    new ApiResponse(false,"No reserved balance foud for this user")
+                )   
+            } else if(reservedBal<margin){
+                return res.status(400).json(
+                   new ApiResponse(false,"Insufficient balance, CUrrent balance : ",reservedBal)
+                )
+            }
+
+            let stopPrice=(margin/qty)+livePrice
+            console.log('stopPrice : ',stopPrice);
+            stopPrice=stopPrice-(stopPrice*0.1)
+            console.log('final stopPrice after decreasing 10% : ',stopPrice);
+            activeUsers[req.user.id].bal.usd.reserved-=margin;
+            const newOrder={
+                orderId:uuidv4(),
+                owner:req.user.id,
+                qty,
+                price:livePrice,
+                action:"SELL",
+                stopPrice,
+                margin
+            }
+            console.log('newOrder : ',newOrder);
+            if(!activeUsers[req.user.id].activeSellOrders){
+                activeUsers[req.user.id].activeSellOrders=[newOrder]
+            }else{
+                activeUsers[req.user.id].activeSellOrders.push(newOrder)
+            }
+            console.log('Pushed new order into Priority queue of ',symbol);
+            
+            activePQS[symbol].push(newOrder)
+            console.log('PQ of ',symbol,' : ',activePQS[symbol]);
+            
             return res.status(200).json(
-                new ApiResponse(true,"In process...")
+                new ApiResponse(true,"Sell order started successfully")
             )
         } else {
             return res.status(400).json(

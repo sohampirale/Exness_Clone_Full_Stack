@@ -23,31 +23,42 @@ const activeUsers: Map<string, UserData>  = new Map();
 const requestedSymbols: Set<string> = new Set();
 
 function sendMarkPriceToUsers(data:any){
-  const {markPrice,symbol}=data;
+  console.log('inside sendMarkPriceToUsers data : ',data);
+  
+  const {markPrice,symbol,buyPrice,sellPrice}=data;
+
   const response ={
     symbol,
-    markPrice
+    markPrice,
+    buyPrice,
+    sellPrice
   }
   const responseStr=JSON.stringify(response)
   for(const [socketId,userData] of activeUsers){
     const {list,socket}=userData;
     if(list.includes(symbol)){
+      console.log('sending livePrice of ',symbol);
       socket.send(responseStr)
     }
   }
 }
 
 defaultList.forEach((symbol)=>{
-  if(!requestedSymbols.has){
+  if(!requestedSymbols.has(symbol)){
     requestedSymbols.add(symbol)
-    subscriber.subscribe(symbol,sendMarkPriceToUsers)
+    subscriber.subscribe(symbol,(dataStr)=>{
+        const data = JSON.parse(dataStr)
+        console.log('data received from pub-sub for ',symbol,' is : ',data);
+        data.symbol=symbol
+        sendMarkPriceToUsers(data)
+      })
   }
 })
 
 
 
 
-const wss = new WebSocketServer({ port: 3001 });
+const wss = new WebSocketServer({ port: 3002 });
 wss.on('connection',(socket:ISocket)=>{
     socket.id=uuidv4()    
     console.log('New client connected at websocket_server');
@@ -68,8 +79,11 @@ wss.on('connection',(socket:ISocket)=>{
               user.list=list
               list.forEach((symbol)=>{
                 if(!requestedSymbols.has(symbol)){
-                  subscriber.subscribe(symbol,(data)=>{
+                  subscriber.subscribe(symbol,(dataStr)=>{
+                    const data = JSON.parse(dataStr)
                     console.log('data received from pub-sub for ',symbol,' is : ',data);
+                    data.symbol=symbol
+                    sendMarkPriceToUsers(data)
                   })
                   requestedSymbols.add(symbol)
                 }
@@ -84,8 +98,8 @@ wss.on('connection',(socket:ISocket)=>{
     })
 })
 
-setInterval(()=>{
-  console.log('activeUsers : ',activeUsers);
-  console.log('requestedSymbols : ',requestedSymbols);
+// setInterval(()=>{
+//   console.log('activeUsers : ',activeUsers);
+//   console.log('requestedSymbols : ',requestedSymbols);
 
-},5000)
+// },5000)

@@ -12,7 +12,6 @@ const userRouter = Router();
  * 7.Get my balance
  */
 
-
 userRouter.route("/signup")
     .post(userSignup)
 

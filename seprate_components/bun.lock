@@ -1,0 +1,13 @@
+{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "dependencies": {
+        "heap-js": "^2.6.0",
+      },
+    },
+  },
+  "packages": {
+    "heap-js": ["heap-js@2.6.0", "", {}, "sha512-trFMIq3PATiFRiQmNNeHtsrkwYRByIXUbYNbotiY9RLVfMkdwZdd2eQ38mGt7BRiCKBaj1DyBAIHmm7mmXPuuw=="],
+  }
+}

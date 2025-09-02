@@ -10,7 +10,7 @@ import candlesRouter from "./routes/candles.routes.js";
 import userRouter from "./routes/user.routes.js";
 import orderRouter from "./routes/order.routes.js";
 
-import { activeUsers, redisSubscriber, updateRediSubscriber } from "./variables/index.js";
+import { activeUsers, redisSubscriber, reqSymbols, updateRediSubscriber } from "./variables/index.js";
 import connectRedisDB from "./lib/connectRedisDB.js";
 
 app.use(express.json())
@@ -19,6 +19,12 @@ app.use(cookieParser())
 connectRedisDB()
 .then((subscriber)=>{
     updateRediSubscriber(subscriber)
+    reqSymbols.forEach((symbol)=>{
+        subscriber.subscribe(symbol,(dataStr)=>{
+            const data=JSON.parse(dataStr)
+            console.log('Data received for symbol ',symbol,' is : ',data);
+        })
+    })
 })
 .catch((err)=>{
     console.log('Failed to connect to Redis DB ... exiting gracefully');
