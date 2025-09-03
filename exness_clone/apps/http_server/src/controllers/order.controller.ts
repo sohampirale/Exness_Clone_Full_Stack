@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import ApiResponse from "../lib/ApiResponse.js";
 import type { ExpressRequest } from "../interfaces/index.js";
 import { createClient } from "redis";
-import { activePQS, activeUsers, livePrices } from "../variables/index.js";
+import { sellPQS, activeUsers, livePrices, buyPQS } from "../variables/index.js";
 import {v4 as uuidv4} from "uuid"
 
 
@@ -37,6 +37,10 @@ export async function openOrder(req:ExpressRequest,res:Response){
         const {action}=req.query
         if(action=='BUY'){
             const {symbol,qty:qtyStr,stoploss}=req.query;
+
+            if(!buyPQS[symbol]){
+                buyPQS[symbol]=new Heap((order1:any,order2:any)=>order2.stoploss-order1.stoploss)
+            }
 
             const qty=Number(qtyStr)
             if(!symbol || !qtyStr || !action || !stoploss){
@@ -98,6 +102,15 @@ export async function openOrder(req:ExpressRequest,res:Response){
             activeUsers[req.user.id].bal.usd.reserved=reservedBal-reqBal
             console.log('updated balance of user : ',activeUsers[req.user.id].bal.usd.reserved);
             
+            const pq=buyPQS[symbol]
+            if(!pq){
+                console.log('PQ nto initialized ofr symbol : ',symbol);
+            } else {
+                console.log('New order pushed into buyPQ of symbol : ',symbol);
+                
+                pq.push(newOrder)
+            }
+
             return res.status(200).json(
                 new ApiResponse(true,"New order created successfully",newOrder)
             )     
@@ -105,8 +118,8 @@ export async function openOrder(req:ExpressRequest,res:Response){
         } else if(action=='SELL'){
             const {symbol,qty:qtyStr,margin:marginStr}=req.query;
 
-            if(!activePQS[symbol]){
-                activePQS[symbol]=new Heap((obj1:any,obj2:any)=>obj1.stopPrice-obj2.stopPrice)
+            if(!sellPQS[symbol]){
+                sellPQS[symbol]=new Heap((order1:any,order2:any)=>order1.stopPrice-order2.stopPrice)
             }
             const qty=Number(qtyStr)
             const margin = Number(marginStr)
@@ -132,8 +145,8 @@ export async function openOrder(req:ExpressRequest,res:Response){
 
             let stopPrice=(margin/qty)+livePrice
             console.log('stopPrice : ',stopPrice);
-            stopPrice=stopPrice-(stopPrice*0.1)
-            console.log('final stopPrice after decreasing 10% : ',stopPrice);
+            // stopPrice=stopPrice-(stopPrice*0.01)
+            // console.log('final stopPrice after decreasing 1% : ',stopPrice);
             activeUsers[req.user.id].bal.usd.reserved-=margin;
             const newOrder={
                 orderId:uuidv4(),
@@ -152,8 +165,8 @@ export async function openOrder(req:ExpressRequest,res:Response){
             }
             console.log('Pushed new order into Priority queue of ',symbol);
             
-            activePQS[symbol].push(newOrder)
-            console.log('PQ of ',symbol,' : ',activePQS[symbol]);
+            sellPQS[symbol].push(newOrder)
+            console.log('PQ of ',symbol,' : ',sellPQS[symbol]);
             
             return res.status(200).json(
                 new ApiResponse(true,"Sell order started successfully")
@@ -164,6 +177,8 @@ export async function openOrder(req:ExpressRequest,res:Response){
             )
         }
     } catch (error) {
+        console.log('ERROR :: openOrder : ',error);
+        
         return res.status(500).json(
             new ApiResponse(false,"Failed to start new order",null,error)
         )        

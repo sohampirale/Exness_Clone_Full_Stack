@@ -11,4 +11,6 @@ export function updateRediSubscriber(subscriber:any){
 export const reqSymbols=['BTCUSDT','SOLUSDT']
 
 //for active SELL orders with margin
-export const activePQS={}
+export const sellPQS={}
+
+export const buyPQS={}

@@ -10,8 +10,9 @@ import candlesRouter from "./routes/candles.routes.js";
 import userRouter from "./routes/user.routes.js";
 import orderRouter from "./routes/order.routes.js";
 
-import { activeUsers, redisSubscriber, reqSymbols, updateRediSubscriber } from "./variables/index.js";
+import { activeUsers, buyPQS, redisSubscriber, reqSymbols, updateRediSubscriber } from "./variables/index.js";
 import connectRedisDB from "./lib/connectRedisDB.js";
+import { manageBuyPQS, manageSellPQS } from "./helpers/PQmanager.js";
 
 app.use(express.json())
 app.use(cookieParser())
@@ -20,9 +21,17 @@ connectRedisDB()
 .then((subscriber)=>{
     updateRediSubscriber(subscriber)
     reqSymbols.forEach((symbol)=>{
+        
         subscriber.subscribe(symbol,(dataStr)=>{
             const data=JSON.parse(dataStr)
-            console.log('Data received for symbol ',symbol,' is : ',data);
+            data.symbol=symbol;
+            if(symbol=='BTCUSDT'){
+                console.log('buyPrice price of bitcoin is : ',data.buyPrice);
+                console.log('sellPrice price of bitcoin is : ',data.sellPrice);
+            }
+            // console.log('Data received for symbol ',symbol,' is : ',data);
+            manageBuyPQS(data)
+            manageSellPQS(data)
         })
     })
 })
