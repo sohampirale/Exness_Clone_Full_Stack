@@ -14,3 +14,4 @@ export const reqSymbols=['BTCUSDT','SOLUSDT']
 export const sellPQS={}
 
 export const buyPQS={}
+

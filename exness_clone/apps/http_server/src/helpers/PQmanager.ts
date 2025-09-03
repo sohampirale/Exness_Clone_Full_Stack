@@ -23,6 +23,20 @@ export async function manageBuyPQS(data:any){
         if(topMostBuyOrder.stoploss>=sellPrice){
             console.log('------------------------------------------------------------------Stoploss hit of buy order : ',topMostBuyOrder);
             pq.pop()
+
+            //check if this order even exists in activeUsers[ownerId].activeBuyOrders
+            const ownerId=topMostBuyOrder.ownerId
+            if(!activeUsers[ownerId]){
+                console.log('user does not exist in activeUsers');
+                continue;
+            } 
+            const activeBuyOrders=activeUsers[ownerId].activeBuyOrders
+            const order = activeBuyOrders.find((oneOrder:any)=>oneOrder.orderId==topMostBuyOrder.orderId)
+            if(!order){
+                console.log('Requested order not found in activeBuyOrders');
+                continue;
+            }
+            
             const soldAmt = topMostBuyOrder.qty*sellPrice
             console.log('Amount genereated after selling the stock is : ',soldAmt);
             console.log();
