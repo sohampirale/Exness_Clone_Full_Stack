@@ -1,4 +1,4 @@
-import { activeUsers, buyPQS, sellPQS } from "../variables/index.js";
+import { activeUsers, buyPQS, livePrices, sellPQS } from "../variables/index.js";
 
 export async function manageBuyPQS(data:any){
     console.log('inside manageBuyPQS');
@@ -57,7 +57,6 @@ export async function manageBuyPQS(data:any){
     }
 }
 
-
 export async function manageSellPQS(data:any){
     console.log('inside manageSellPQS');
     // console.log('data : ',data);
@@ -81,6 +80,38 @@ export async function manageSellPQS(data:any){
         if(bottomMostSellOrder.stopPrice<=buyPrice){
             console.log('------------------------------------------------------------------stopPrice hit of sell order : ',bottomMostSellOrder);
             pq.pop()
+            /**
+             * 1.fetch the order form activeUsers[order.owner].activeSellOrders if not found continue
+             * 1.calculate buyAmt (livePrice * order.qty) [maybe unnessesary]
+             * 2.calculate sellAmt (the amt user deserves because of selling at order.qty * order.price)
+             * 3.add the sellAmt in the activeUsers[order.owner].bal.usd.reserved
+             * 4.add field buyPrice = liveBuyPrice
+             * 5.remove that order from the activeSellOrders
+             */
+            const activeSellOrders=activeUsers[bottomMostSellOrder.owner]?.activeSellOrders
+            const index=activeSellOrders.findIndex((order:any)=>order.orderId==bottomMostSellOrder.orderId)
+            if(index==-1){
+                console.log('This sell order is already closed by user before hitting the stopPrice');
+                continue
+            }
+
+            if(!activeSellOrders)continue
+
+            const liveData=livePrices.get(bottomMostSellOrder.symbol)
+            const liveBuyPrice = liveData.buyPrice
+            const buyAmt = liveBuyPrice*bottomMostSellOrder.qty
+            const sellAmt=bottomMostSellOrder.qty*bottomMostSellOrder.price
+            const reserved = activeUsers[bottomMostSellOrder.owner]?.bal?.usd?.reserved
+            if(!reserved && reserved!=0){
+                console.log(`Reserved amt not foud for userId : ${bottomMostSellOrder.owner}`);
+                continue;
+            }
+            
+            activeUsers[bottomMostSellOrder.owner].bal.usd.reserved=reserved+sellAmt
+            console.log(`reserved amt of user : ${activeUsers[bottomMostSellOrder.owner]?.userData?.username} increased from ${reserved} to ${reserved+sellAmt}`);
+            bottomMostSellOrder.buyPrice=liveBuyPrice
+            activeSellOrders.splice(index,1)
+            
         } else {
             console.log('No order yet hit the stoploss');
             break;

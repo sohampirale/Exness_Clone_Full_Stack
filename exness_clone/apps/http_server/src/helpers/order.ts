@@ -52,12 +52,13 @@ export async function closeBuyOrder(orderId:string,ownerId:string){
  * 7.calculate sellAmt-buyAmt (netBal)
  * 8.calcualte order.margin+netBal and add it in the reserved 
  */
-
+ 
 export async function closeSellOrder(orderId:string,ownerId:string){
     if(!activeUsers[ownerId]){
         console.log('Owner not found');
         return false;
     }
+
     const activeSellOrders=activeUsers[ownerId].activeSellOrders
     if(!activeSellOrders){
         console.log('No active sell order found');
@@ -83,6 +84,7 @@ export async function closeSellOrder(orderId:string,ownerId:string){
         console.log('buyPrice not found for symbol : ',order.symbol);
         return;
     }
+
     activeSellOrders.splice(index,1)
     const buyAmt=order.qty*buyPrice
     const sellAmt=order.qty * order.price
@@ -93,3 +95,8 @@ export async function closeSellOrder(orderId:string,ownerId:string){
     console.log('Sell order closed successfully');
     return true;
 }
+
+/**
+ * 1.normal buy sell complete (route handler for buy and sell,normal shorting also need to look into)
+ * 2.
+ */

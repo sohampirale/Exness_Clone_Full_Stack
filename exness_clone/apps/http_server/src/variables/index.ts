@@ -15,3 +15,6 @@ export const sellPQS={}
 
 export const buyPQS={}
 
+export const completedBuyOrders:any[]=[]
+
+export const completedSellOrders:any[]=[]
