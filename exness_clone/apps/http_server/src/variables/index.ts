@@ -8,13 +8,22 @@ export function updateRediSubscriber(subscriber:any){
     redisSubscriber=subscriber
 }
 
-export const reqSymbols=['BTCUSDT','SOLUSDT']
-
 //for active SELL orders with margin
-export const sellPQS={}
+export const sellPQS:any={}
 
-export const buyPQS={}
+export const buyPQS:any={}
+
+export const leverageBuyPQS:any={}
+
+export const leverageSellPQS={}
 
 export const completedBuyOrders:any[]=[]
 
 export const completedSellOrders:any[]=[]
+
+export const completedLeverageBuyOrders:any[]=[]
+
+export const completedLeverageSellOrders:any[]=[]
+
+
+export const maxLeverageScale=10;

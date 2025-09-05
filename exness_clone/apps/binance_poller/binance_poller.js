@@ -13,6 +13,7 @@ const ws=new WebSocket(wsUrl)
 ws.on("open",()=>{
     console.log('Conencted ')
 })
+let reqSymbolsSet=false;
 
 ws.on("message",async (msg) => {
 
@@ -24,9 +25,17 @@ ws.on("message",async (msg) => {
   const DBData={
     time:Date.now()
   }
+  if(!reqSymbolsSet){
+      await publisher.del("reqSymbols");
+  }
+  
   allData.forEach(async(data) => {
     const {e:eventType,E:eventTime,s:symbol,p:markPriceStr,i:indexPrice,P:estimatedSettlePrice,r:fundingRate,T:nextFundingTime}=data;
     const markPrice=Number(markPriceStr)
+    if(!reqSymbolsSet){
+      await publisher.rPush("reqSymbols",symbol)
+    }
+
     await publisher.publish(symbol,JSON.stringify({
       markPrice,
       buyPrice:generateIncreasedBuyPrice(markPrice),
@@ -34,6 +43,8 @@ ws.on("message",async (msg) => {
     }))
     DBData[symbol]=markPrice
   });
+
+  reqSymbolsSet=true
   console.log('published live data to redis pub sub');
 
   await publisher.rPush("dump_timescaleDB",JSON.stringify(DBData));
