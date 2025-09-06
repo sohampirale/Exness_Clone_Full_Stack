@@ -29,7 +29,7 @@ model user{
 //instead of $executeRawUnsafe or $queryRawUnsafe
 //DO NOT RUN npx prisma migrate after uncommenting these lines below these only for generating client and using in code with less friction
 
-
+/*
 model candles_1m {
   bucket DateTime
   symbol String
@@ -62,3 +62,4 @@ model candles_1h {
 
   @@id([bucket, symbol])
 }
+*/
