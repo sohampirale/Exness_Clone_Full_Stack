@@ -31,5 +31,4 @@ export const completedLeverageBuyOrders:any[]=[]
 
 export const completedLeverageSellOrders:any[]=[]
 
-
 export const maxLeverageScale=10;

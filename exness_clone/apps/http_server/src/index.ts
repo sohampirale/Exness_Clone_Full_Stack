@@ -21,10 +21,7 @@ app.use(cookieParser())
 connectRedisDB()
 .then(async(subscriber)=>{
 
-    updateRediSubscriber(subscriber)
-
     setReqSymbols(subscriber)
-
 
     await subscriber.pSubscribe('*',async (dataStr, symbol) => {
         const data=JSON.parse(dataStr)

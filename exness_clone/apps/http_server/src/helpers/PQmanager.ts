@@ -1,22 +1,22 @@
 import { activeUsers, buyPQS, completedBuyOrders, completedLeverageBuyOrders, completedLeverageSellOrders, completedSellOrders, leverageBuyPQS, livePrices, sellPQS } from "../variables/index.js";
 
 export async function manageBuyPQS(data:any){
-    console.log('inside manageBuyPQS');
+    // console.log('inside manageBuyPQS');
     // console.log('data : ',data);
     const {symbol,sellPrice}=data;
     const pq=buyPQS[symbol]
     if(!pq){
-        console.log('Priority queue has not been initialized for symbol : ',symbol);
+        // console.log('Priority queue has not been initialized for symbol : ',symbol);
         return;
     } else if(pq.size()==0){
-        console.log('no active buy orders found for symbol : ',symbol);
+        // console.log('no active buy orders found for symbol : ',symbol);
         return;
     }
 
     while(1){
         const topMostBuyOrder = pq.peek()
         if(!topMostBuyOrder){
-            console.log('no activeBuyOrders right now');
+            // console.log('no activeBuyOrders right now');
             break;
         }
         console.log('topMostBuyOrder : ',topMostBuyOrder);
@@ -58,22 +58,22 @@ export async function manageBuyPQS(data:any){
 }
 
 export async function manageSellPQS(data:any){
-    console.log('inside manageSellPQS');
+    // console.log('inside manageSellPQS');
     // console.log('data : ',data);
     const {symbol,buyPrice}=data;
     const pq=sellPQS[symbol]
     if(!pq){
-        console.log('Priority queue has not been initialized for symbol : ',symbol);
+        // console.log('Priority queue has not been initialized for symbol : ',symbol);
         return;
     } else if(pq.size()==0){
-        console.log('no active SELL orders found for symbol : ',symbol);
+        // console.log('no active SELL orders found for symbol : ',symbol);
         return;
     }
 
     while(1){
         const bottomMostSellOrder = pq.peek()
         if(!bottomMostSellOrder){
-            console.log('no activeSellOrders right now');
+            // console.log('no activeSellOrders right now');
             break;
         }
         console.log('bottomMostSellOrder : ',bottomMostSellOrder);
@@ -120,23 +120,23 @@ export async function manageSellPQS(data:any){
 }
 
 export async function manageLeverageBuyPQS(data:any){
-     console.log('inside manageLeverageBuyPQS');
+    //  console.log('inside manageLeverageBuyPQS');
     // console.log('data : ',data);
     const {symbol,sellPrice}=data;
     const pq=leverageBuyPQS[symbol]
 
     if(!pq){
-        console.log('Priority queue has not been initialized for symbol : ',symbol);
+        // console.log('Priority queue has not been initialized for symbol : ',symbol);
         return;
     } else if(pq.size()==0){
-        console.log('no active Buy orders found for symbol : ',symbol);
+        // console.log('no active Buy orders found for symbol : ',symbol);
         return;
     }
   
     while(1){
         const topMostLeverageBuyOrder = pq.peek()
         if(!topMostLeverageBuyOrder){
-            console.log('no activeLeverageBuyOrders right now');
+            // console.log('no activeLeverageBuyOrders right now');
             break;
         }
         console.log('topMostLeverageBuyOrder : ',topMostLeverageBuyOrder);
@@ -175,22 +175,22 @@ export async function manageLeverageBuyPQS(data:any){
 }
 
 export async function manageLeverageSellPQS(data:any){
-    console.log('inside manageLeverageSellPQS');
+    // console.log('inside manageLeverageSellPQS');
     // console.log('data : ',data);
     const {symbol,buyPrice}=data;
     const pq=sellPQS[symbol]
     if(!pq){
-        console.log('Priority queue has not been initialized for symbol : ',symbol);
+        // console.log('Priority queue has not been initialized for symbol : ',symbol);
         return;
     } else if(pq.size()==0){
-        console.log('no active leverage SELL orders found for symbol : ',symbol);
+        // console.log('no active leverage SELL orders found for symbol : ',symbol);
         return;
     }
 
     while(1){
         const bottomMostLeverageSellOrder = pq.peek()
         if(!bottomMostLeverageSellOrder){
-            console.log('no activeSellOrders right now');
+            // console.log('no activeSellOrders right now');
             break;
         }
         console.log('bottomMostLeverageSellOrder : ',bottomMostLeverageSellOrder);

@@ -1,5 +1,5 @@
 import { response, type Request, type Response } from "express";
-import { activeUsers, users } from "../variables/index.js";
+import { activeUsers, redisQueue, users } from "../variables/index.js";
 import ApiResponse from "../lib/ApiResponse.js";
 import prisma from "db/client"
 import { generateAccessToken } from "../helpers/token.js";
@@ -39,10 +39,14 @@ export async function userSignup(req: Request, res: Response) {
         }
 
         const userData={
-            user,
-            bal
+            userData:user,
+            bal,
+            userId:user.id
         }
+
         activeUsers[user.id]=userData
+
+        await redisQueue.lPush('newUser',JSON.stringify(userData))
 
         const accessToken = generateAccessToken({
             id: user.id,
@@ -116,6 +120,8 @@ export async function userSignin(req: Request, res: Response) {
             new ApiResponse(true, "Login successfull")
         )
     } catch (error) {
+        console.log('ERROR :: userSignin : ',error);
+        
         return res.status(500).json(
             new ApiResponse(false, "Failed to signin")
         )
