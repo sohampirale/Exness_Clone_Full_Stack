@@ -10,7 +10,9 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
+    "dotenv": "^17.2.2",
     "heap-js": "^2.6.0",
-    "prisma": "^6.15.0"
+    "prisma": "^6.15.0",
+    "uuid": "^12.0.0"
   }
 }

@@ -44,9 +44,7 @@ export async function userSignup(req: Request, res: Response) {
             userId:user.id
         }
 
-        activeUsers[user.id]=userData
-
-        await redisQueue.lPush('newUser',JSON.stringify(userData))
+        await redisQueue.lPush('newuser',JSON.stringify(userData))
 
         const accessToken = generateAccessToken({
             id: user.id,
@@ -59,7 +57,9 @@ export async function userSignup(req: Request, res: Response) {
                 httpOnly: true, // prevents JS access
             })
             .status(201).json(
-                new ApiResponse(true, "User signup successfully")
+                new ApiResponse(true, "User signup successfully",{
+                    accessToken
+                })
             )
     } catch (error) {
         return res.status(500).json(
@@ -93,6 +93,8 @@ export async function userSignin(req: Request, res: Response) {
                 new ApiResponse(false, "Incorrect password")
             )
         }
+
+        delete user.password
         
         const bal={
             usd:{
@@ -101,10 +103,12 @@ export async function userSignin(req: Request, res: Response) {
         }
 
         const userData={
-            user,
-            bal
+            userData:user,
+            bal,
+            userId:user.id
         }
-        activeUsers[user.id]=userData
+
+        await redisQueue.lPush('newuser',JSON.stringify(userData))
 
         const accessToken=generateAccessToken({
             id:user.id,
@@ -117,8 +121,11 @@ export async function userSignin(req: Request, res: Response) {
             httpOnly: true, 
         })
         .status(200).json(
-            new ApiResponse(true, "Login successfull")
+            new ApiResponse(true, "Login successfull",{
+                accessToken
+            })
         )
+        
     } catch (error) {
         console.log('ERROR :: userSignin : ',error);
         
