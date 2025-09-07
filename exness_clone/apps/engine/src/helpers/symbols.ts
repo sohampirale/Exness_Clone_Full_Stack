@@ -1,5 +1,5 @@
 import { livePrices } from "../variables/index.js";
-import { manageBuyPQS, manageSellPQS } from "./PQmanager.js";
+// import { manageBuyPQS, manageSellPQS } from "./PQmanager.ts";
 
 export let reqSymbols=[]
 
@@ -12,6 +12,7 @@ export async function setReqSymbols(subscriber:any){
                 setReqSymbols(subscriber)
                 return
             },2000)
+            return
         } 
 
         reqSymbols.forEach((symbol:string)=>{

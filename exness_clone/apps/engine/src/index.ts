@@ -1,63 +1,93 @@
 import dotenv from "dotenv"
 dotenv.config()
 import { createClient } from "redis";
-import { activeUsers, offset, setActiveUsers, setOffset, snapshotDumpInterval } from "./variables";
-import { NIL } from "uuid";
+import { activeUsers, livePrices, offset, redisSubscriber, setActiveUsers, setOffset, snapshotDumpInterval, updateRediSubscriber } from "./variables";
+import { v4 as uuidv4 } from "uuid";
+import { setReqSymbols } from "./helpers/symbols";
+import { recoverFromSnapshot } from "./helpers/recovery";
 
-const ordersSubscriber = createClient({ url: process.env.REDIS_DB_URL! });
-const newUsersSubscriber = createClient({ url: process.env.REDIS_DB_URL! });
-const redisPublisher = createClient({ url: process.env.REDIS_DB_URL! });
-const snapshotSubscriber = createClient({ url: process.env.REDIS_DB_URL! });
-const recoveryOrdersSubscriber = createClient({url:process.env.REDIS_DB_URL!})
+export const ordersSubscriber = createClient({ url: process.env.REDIS_DB_URL! });
+export const newUsersSubscriber = createClient({ url: process.env.REDIS_DB_URL! });
+export const redisPublisher = createClient({ url: process.env.REDIS_DB_URL! });
+export const snapshotSubscriber = createClient({ url: process.env.REDIS_DB_URL! });
+export const recoveryOrdersSubscriber = createClient({ url: process.env.REDIS_DB_URL! })
+const tempRediSubscriber=createClient({ url: process.env.REDIS_DB_URL! })
+updateRediSubscriber(tempRediSubscriber)
 
-let recoveryDone=false;
+let recoveryDone = false;
 
-async function connectAllRedisClients(){
+async function connectAllRedisClients() {
   try {
     await recoveryOrdersSubscriber.connect()
     await snapshotSubscriber.connect()
     await ordersSubscriber.connect()
     await newUsersSubscriber.connect()
     await redisPublisher.connect()
-
+    await redisSubscriber.connect()
     console.log('All redis clients connected');
 
+    setReqSymbols(redisSubscriber)
+
+    await redisSubscriber.pSubscribe('*', async (dataStr: any, symbol: string) => {
+      try {
+        
+        const data = JSON.parse(dataStr)
+        data.symbol = symbol;
+        if ((!data.sellPrice && data.sellPrice != 0) || (!data.buyPrice && data.buyPrice != 0)) {
+          console.log('unnncesaary pub sub for liveData : ',data);
+          
+          return
+        }
+        livePrices.set(symbol, data)
+        manageBuyPQS(data)
+        manageSellPQS(data)
+        manageLeverageBuyPQS(data)
+        manageLeverageSellPQS(data)
+      } catch (error) { 
+        //subscring to unncessary channels who does not belong to livePrices pub sub thing
+      }
+    });
+
     const latestSnapshot = await snapshotSubscriber.lIndex("activeusers_snapshot", -1)
-    const snapshot = JSON.parse(latestSnapshot)
+   
 
-    if(!snapshot){
+    let snapshot = JSON.parse(latestSnapshot)
+
+    if (!snapshot) {
       console.log('No snapshot found');
-      return
+    } else {
+      setOffset(snapshot.lastExecutedOffset)
+  
+      console.log('latest snapshot : ', snapshot);
+  
+      setActiveUsers(snapshot)
+  
+      const from = snapshot.lastExecutedOffset;
+      const to = -1;
+      console.log('finding out missingOrders');
+  
+      const missingOrders = await recoveryOrdersSubscriber.lRange("orders:log", from, to);
+      if (!missingOrders || (Array.isArray(missingOrders) && missingOrders.length == 0)) {
+        console.log('No missing orders found');
+      } else {
+        console.log('missing orders : ', missingOrders);
+        const recoveryOrders = []
+        for (let i = 0; i < missingOrders.length; i++) {
+          recoveryOrders.push(JSON.parse(missingOrders[i]))
+        }
+  
+        console.log('recoveryOrders : ',recoveryOrders);
+        
+        //TODO
+        //await recover from recoveryOrders
+        snapshot=await recoverFromSnapshot(snapshot,recoveryOrders)
+        setActiveUsers(snapshot)
+        recoveryDone = true
+      }
     }
-
-    setOffset(snapshot.lastExecutedOffset)
-
-    console.log('latest snapshot : ',snapshot);
-    
-    setActiveUsers(snapshot)
-
-    const from = snapshot.lastExecutedOffset;         
-    const to   = -1;         
-    console.log('finding out missingOrders');
-    
-    const missingOrders = await recoveryOrdersSubscriber.lRange("orders:log", from, to);
-    if(!missingOrders || (Array.isArray(missingOrders) && missingOrders.length==0)){
-      console.log('No missing orders found');
-      return;
-    }
-    console.log('missing orders : ',missingOrders);
-    const recoveryOrders =[]
-    for(let i=0;i<missingOrders.length;i++){
-      recoveryOrders.push(JSON.parse(missingOrders[i]))
-    }
-
-    //TODO
-    //await recover from recoveryOrders
-
-    recoveryDone=true
 
   } catch (error) {
-    console.log('Failed to connect all required redis clients, ERROR : ',error);
+    console.log('Failed to connect all required redis clients, ERROR : ', error);
     console.log('Exiting process gracefully');
     process.exit(1)
   }
@@ -65,47 +95,46 @@ async function connectAllRedisClients(){
 
 connectAllRedisClients()
 
-let IntId1=setInterval(()=>{
-  if(ordersSubscriber.isOpen && recoveryDone){
+let IntId1 = setInterval(() => {
+  if (ordersSubscriber.isOpen && recoveryDone) {
     clearInterval(IntId1)
     executeOrders()
   }
-},2000)
+}, 2000)
 
-let IntId2=setInterval(()=>{
-  if(ordersSubscriber.isOpen && recoveryDone){
+let IntId2 = setInterval(() => {
+  if (newUsersSubscriber.isOpen && recoveryDone) {
     clearInterval(IntId2)
     addNewUsers()
   }
-},2000)
+}, 2000)
 
 async function executeOrders() {
   while (1) {
-    if(!ordersSubscriber.isOpen){
 
-    }
     try {
       console.log('doing brPop');
 
       const data = await ordersSubscriber.brPop("orders", 0)
 
       const orderStr = data?.element
-      // const order = JSON.parse(orderStr)
-      // const type = order.type;
-      // const request = order.request;
-      // if (type == 'NORMAL') {
-      //   if (request == 'OPEN') {
-      //     //call openOrder(order) function
-      //   } else if (request == 'CLOSE') {
-      //     //call closeOrder(order) function
-      //   }
-      // } else if (type == 'LEVERAGE') {
-      //   if (request == 'OPEN') {
-      //     //call openLeverageOrder
-      //   } else if (request == 'CLOSE') {
-      //     //call closeLeverageOrder
-      //   }
-      // }
+      const order = JSON.parse(orderStr)
+      const type = order.type;
+      const request = order.request;
+
+      if (type == 'NORMAL') {
+        if (request == 'OPEN') {
+          //call openOrder(order) function
+        } else if (request == 'CLOSE') {
+          //call closeOrder(order) function
+        }
+      } else if (type == 'LEVERAGE') {
+        if (request == 'OPEN') {
+          //call openLeverageOrder
+        } else if (request == 'CLOSE') {
+          //call closeLeverageOrder
+        }
+      }
 
       const order = orderStr
       console.log('order received : ', order);
@@ -144,7 +173,12 @@ setInterval(() => {
   console.log('activeUsers : ', activeUsers);
 }, 5000)
 
-let temp=0
+let temp = 0
+
+// setInterval(()=>{
+//   console.log('livePrcies : ',livePrices);
+  
+// },5000)
 
 // setInterval(async()=>{
 //   try {

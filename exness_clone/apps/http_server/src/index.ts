@@ -24,13 +24,18 @@ connectRedisDB()
     setReqSymbols(subscriber)
 
     await subscriber.pSubscribe('*',async (dataStr, symbol) => {
-        const data=JSON.parse(dataStr)
-        data.symbol=symbol;
-        livePrices.set(symbol,data)
-        manageBuyPQS(data)
-        manageSellPQS(data)
-        manageLeverageBuyPQS(data)
-        manageLeverageSellPQS(data)
+        try {
+            const data=JSON.parse(dataStr)
+            data.symbol=symbol;
+            if((!data.sellPrice && data.sellPrice!=0) || (!data.buyPrice && data.buyPrice!=0)){
+                return
+            }
+            livePrices.set(symbol,data)
+            manageBuyPQS(data)
+            manageSellPQS(data)
+            manageLeverageBuyPQS(data)
+            manageLeverageSellPQS(data)
+        } catch (error) {}
     });
 
   

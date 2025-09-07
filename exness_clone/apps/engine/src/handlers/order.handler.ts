@@ -1,7 +1,7 @@
 import Heap from "heap-js";
-import { activeUsers, buyPQS, completedLeverageBuyOrders, completedLeverageSellOrders, completedSellOrders, leverageBuyPQS, leverageSellPQS, livePrices, maxLeverageScale, sellPQS } from "../variables";
-import {v4 as uuidv4} from "uuid"
-
+import { activeUsers, buyPQS, completedLeverageBuyOrders, completedLeverageSellOrders, completedSellOrders, leverageBuyPQS, leverageSellPQS, livePrices, maxLeverageScale, NOTIFICATION_BODY, NOTIFICATION_MESSAGE, NOTIFICATION_SUBJECT, sellPQS } from "../variables";
+import { v4 as uuidv4 } from "uuid"
+import { redisPublisher } from "..";
 
 /**
  * action == 'BUY'
@@ -25,182 +25,414 @@ import {v4 as uuidv4} from "uuid"
  * 9.Return response
  */
 
-export async function openOrder(order:any){
+export async function openOrder(order: any) {
 
-    const {action,owner,orderId} = order
+    const { action, owner, orderId } = order
 
     try {
 
-        if(action=='BUY'){
-            const {symbol,qty:qtyStr,stoploss:stoplossStr}=order;
+        if (action == 'BUY') {
+            const { symbol, qty: qtyStr, stoploss: stoplossStr } = order;
 
-            if(!buyPQS[symbol]){
-                buyPQS[symbol]=new Heap((order1:any,order2:any)=>order2.stoploss-order1.stoploss)
+            if (!buyPQS[symbol]) {
+                buyPQS[symbol] = new Heap((order1: any, order2: any) => order2.stoploss - order1.stoploss)
             }
-            const qty=Number(qtyStr)
-            const stoploss=Number(stoplossStr)
+            const qty = Number(qtyStr)
+            const stoploss = Number(stoplossStr)
 
-            if(!symbol || !qty || !action || !stoploss){
+            //leave this to the http server ?
+            if (!symbol || !qty || !action || !stoploss) {
+
+
                 //TODO  1.rejecting the order completely 
                 //2.publishing notification to pub sub on "orders_executed"
+                const obj = {
+                    orderId,
+                    message: `Invalid/Insufficient fields provided`,
+                    owner
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(obj))
+                return;
             }
 
-            
-            const livePriceData=livePrices.get(symbol);
-            const liveBuyPrice =livePriceData?.buyPrice
-            console.log('livePriceData : ',livePriceData);
-            
-            if(!liveBuyPrice){
+
+            const livePriceData = livePrices.get(symbol);
+            const liveBuyPrice = livePriceData?.buyPrice
+            console.log('livePriceData : ', livePriceData);
+
+            if (!liveBuyPrice) {
                 //TODO
                 // return res.status(404).json(
                 //     new ApiResponse(false,`Live price not found for the symbol : ${symbol}`)
                 // )        
+
+                const update = {
+                    orderId,
+                    owner,
+                    message: `Live data not found for symbol : ${symbol}, order failed`
+                }
+
+                const updateEmail = {
+                    ...update,
+                    email: activeUsers[owner]?.userData?.email,
+                    subject: `Exness clone : order notification`,
+                    body: NOTIFICATION_BODY.LIVE_DATA_NOT_FOUND(activeUsers[owner]?.userData.username, update.message, order)
+                }
+
+                const updateSMS = {
+                    ...update,
+                    body: updateEmail.body,
+                    phone: activeUsers[owner]?.userData?.phone
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+                await redisPublisher.lPush("notifications_sms", JSON.stringify(updateSMS))
+                await redisPublisher.lPush("notifications_email", JSON.stringify(updateEmail))
+                return;
             }
-    
-            console.log('liveBuyPrice : ',liveBuyPrice);
-            
-            const reqBal=liveBuyPrice*qty;
-            const reservedBal=activeUsers[owner]?.bal?.usd?.reserved
-    
-            console.log('reqBal : ',reqBal);
-            console.log('reservedBal : ',reservedBal);
-            
-            if(!reservedBal){
-                //TODO
+
+            console.log('liveBuyPrice : ', liveBuyPrice);
+
+            const reqBal = liveBuyPrice * qty;
+            const reservedBal = activeUsers[owner]?.bal?.usd?.reserved
+
+            console.log('reqBal : ', reqBal);
+            console.log('reservedBal : ', reservedBal);
+
+            if (!reservedBal) {
+                const obj = {
+                    orderId,
+                    owner,
+                    message: `Reserved balance not found for the user ${activeUsers[owner]?.userData?.username}`
+                }
+                await redisPublisher.publish("orders_executed", JSON.stringify(obj))
+                return;
+
+
                 // return res.status(400).json(
                 //     new ApiResponse(false,`No reserved balance found for the user`)
                 // )     
-            } else if(reservedBal<reqBal){
-               //TODO 
+            } else if (reservedBal < reqBal) {
+
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.INSUFFICIENT_BALANCE
+                }
+
+                const updateEmail = {
+                    ...update,
+                    email: activeUsers[owner]?.userData?.email,
+                    subject: `Exness clone : order notification`,
+                    body: NOTIFICATION_BODY.INSUFFICIENT_BALANCE(activeUsers[owner]?.userData?.username, update.message, order)
+                }
+
+                const updateSMS = {
+                    ...update,
+                    body: updateEmail.body,
+                    phone: activeUsers[owner]?.userData?.phone
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+                await redisPublisher.lPush("notifications_sms", JSON.stringify(updateSMS))
+                await redisPublisher.lPush("notifications_email", JSON.stringify(updateSMS))
+
+
+                //
                 // return res.status(400).json(
                 //     new ApiResponse(false,`Insufficient reserved balance of the user`)
                 // )  
             }
             console.log('hey');
-            
 
-            const newOrder={
+
+            const newOrder = {
                 orderId,
-                action:'BUY',
+                action: 'BUY',
                 symbol,
-                price:liveBuyPrice,
+                price: liveBuyPrice,
                 qty,
                 stoploss,
-                owner:owner
+                owner: owner
             }
 
 
-            if(!activeUsers[owner].activeBuyOrders){
-                activeUsers[owner].activeBuyOrders=[newOrder]
+            if (!activeUsers[owner].activeBuyOrders) {
+                activeUsers[owner].activeBuyOrders = [newOrder]
             } else {
                 activeUsers[owner].activeBuyOrders.push(newOrder)
             }
             console.log('updated activeBuyOrders');
-            
-            activeUsers[owner].bal.usd.reserved=reservedBal-reqBal
-            console.log('updated balance of user : ',activeUsers[owner].bal.usd.reserved);
-            
-            const pq=buyPQS[symbol]
-            if(!pq){
-                console.log('PQ not initialized for symbol : ',symbol);
+
+            activeUsers[owner].bal.usd.reserved = reservedBal - reqBal
+            console.log('updated balance of user : ', activeUsers[owner].bal.usd.reserved);
+
+            const pq = buyPQS[symbol]
+
+            if (!pq) {
+                console.log('PQ not initialized for symbol : ', symbol);
             } else {
-                console.log('New order pushed into buyPQ of symbol : ',symbol);
-                
+                console.log('New order pushed into buyPQ of symbol : ', symbol);
+
                 pq.push(newOrder)
             }
 
-            //TODO
+            const { bal, activeBuyOrders, activeSellOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
+            const ordersLogObj = {
+                orderId,
+                owner,
+                bal,
+                activeBuyOrders,
+                activeSellOrders,
+                activeLeverageBuyOrders,
+                activeLeverageSellOrders
+            }
+
+            const update = {
+                orderId,
+                owner,
+                message: NOTIFICATION_MESSAGE.SUCCESS_OPEN_ORDER
+            }
+
+            const updateEmail = {
+                ...update,
+                email: activeUsers[owner]?.userData?.email,
+                subject: NOTIFICATION_SUBJECT.SUCCESS_OPEN_ORDER,
+                body: NOTIFICATION_BODY.SUCCESS_OPEN_ORDER(activeUsers[owner]?.userData?.username, update.message, order)
+            }
+
+            const updateSms = {
+                ...update,
+                body: updateEmail.body,
+                phone: activeUsers[owner]?.userData?.phone
+            }
+
+            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
+            await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
+
+            //
             //1.pushing onto notifications queue 
             //2.pushing info onto pub sub "orders_executed"
             // return res.status(200).json(
             //     new ApiResponse(true,"New order created successfully",newOrder)
             // )     
 
-        } else if(action=='SELL'){
-            const {symbol,qty:qtyStr,margin:marginStr}=order;
 
-            if(!sellPQS[symbol]){
-                sellPQS[symbol]=new Heap((order1:any,order2:any)=>order1.stopPrice-order2.stopPrice)
+
+        } else if (action == 'SELL') {
+            const { symbol, qty: qtyStr, margin: marginStr } = order;
+
+            if (!sellPQS[symbol]) {
+                sellPQS[symbol] = new Heap((order1: any, order2: any) => order1.stopPrice - order2.stopPrice)
             }
-            const qty=Number(qtyStr)
+            const qty = Number(qtyStr)
             const margin = Number(marginStr)
-            if(margin<=0){
-                //TODO
+            if (margin <= 0) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.INVALID_MARGIN
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+                return;
+
+                //
                 // return res.status(400).json(
                 //    new ApiResponse(false,"Margin cannot be less than 0")
                 // )
             }
 
-            const livePriceData=livePrices.get(symbol);
-            const livePrice=livePriceData.sellPrice;
-            const iniReqAmt = (qty*livePrice)+margin
-            console.log('Live sell price of ',symbol,' is : ',livePrice);
-            const reservedBal=activeUsers[owner]?.bal?.usd?.reserved;
+            const livePriceData = livePrices.get(symbol);
+            const livePrice = livePriceData.sellPrice;
+            const iniReqAmt = (qty * livePrice) + margin
+            console.log('Live sell price of ', symbol, ' is : ', livePrice);
+            const reservedBal = activeUsers[owner]?.bal?.usd?.reserved;
 
-            if(!reservedBal){
-                //TODO
+            if (!reservedBal) {
+
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.LIVE_DATA_NOT_FOUND
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+                return;
+
+                //
                 // return res.status(404).json(
                 //     new ApiResponse(false,"No reserved balance foud for this user")
                 // )   
-            } else if(reservedBal<iniReqAmt){
-                //TODO
+            } else if (reservedBal < iniReqAmt) {
+
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.INSUFFICIENT_BALANCE
+                }
+
+                const updateEmail = {
+                    ...update,
+                    email: activeUsers[owner]?.userData?.email,
+                    subject: NOTIFICATION_SUBJECT.INSUFFICIENT_BALANCE,
+                    body: NOTIFICATION_BODY.INSUFFICIENT_BALANCE(activeUsers[owner]?.userData?.username, update.message, order)
+                }
+
+                const updateSms = {
+                    ...update,
+                    body: updateEmail.body,
+                    phone: activeUsers[owner]?.userData?.phone
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+                await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
+                await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
+                return
+                //
                 // return res.status(400).json(
                 //    new ApiResponse(false,`Insufficient balance, Current balance : ${reservedBal}, & maring+minAmt required : ${iniReqAmt}`)
                 // )
             }
 
-            let stopPrice=(margin/qty)+livePrice
-            console.log('stopPrice : ',stopPrice);
+            let stopPrice = (margin / qty) + livePrice
+            console.log('stopPrice : ', stopPrice);
             // stopPrice=stopPrice-(stopPrice*0.01)
             // console.log('final stopPrice after decreasing 1% : ',stopPrice);
             const reserved = activeUsers[owner].bal.usd.reserved;
-            activeUsers[owner].bal.usd.reserved=reserved-iniReqAmt;
-            console.log(`reserved amount of user decreased from ${reserved} to ${reserved-iniReqAmt}`);
-            
-            const newOrder={
-                orderId:uuidv4(),
-                owner:owner,
+            activeUsers[owner].bal.usd.reserved = reserved - iniReqAmt;
+            console.log(`reserved amount of user decreased from ${reserved} to ${reserved - iniReqAmt}`);
+
+            const newOrder = {
+                orderId: uuidv4(),
+                owner: owner,
                 qty,
-                price:livePrice,
-                action:"SELL",
+                price: livePrice,
+                action: "SELL",
                 stopPrice,
                 margin,
                 iniReqAmt
             }
 
-            console.log('newOrder : ',newOrder);
-            if(!activeUsers[owner].activeSellOrders){
-                activeUsers[owner].activeSellOrders=[newOrder]
-            }else{
+            console.log('newOrder : ', newOrder);
+            if (!activeUsers[owner].activeSellOrders) {
+                activeUsers[owner].activeSellOrders = [newOrder]
+            } else {
                 activeUsers[owner].activeSellOrders.push(newOrder)
             }
 
-            console.log('Pushed new order into Priority queue of ',symbol);
-            
+            console.log('Pushed new order into Priority queue of ', symbol);
+
             sellPQS[symbol].push(newOrder)
-            console.log('PQ of ',symbol,' : ',sellPQS[symbol]);
-            
+            console.log('PQ of ', symbol, ' : ', sellPQS[symbol]);
+
+            const { bal, activeBuyOrders, activeSellOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
+
+            const ordersLogObj = {
+                orderId,
+                owner,
+                bal,
+                activeBuyOrders,
+                activeSellOrders,
+                activeLeverageBuyOrders,
+                activeLeverageSellOrders
+            }
+
+            const update = {
+                orderId,
+                owner,
+                message: NOTIFICATION_MESSAGE.SUCCESS_OPEN_ORDER
+            }
+
+            const updateEmail = {
+                ...update,
+                email: activeUsers[owner]?.userData?.email,
+                subject: NOTIFICATION_SUBJECT.SUCCESS_OPEN_ORDER,
+                body: NOTIFICATION_BODY.SUCCESS_OPEN_ORDER(activeUsers[owner]?.userData?.username, update.message, order)
+            }
+
+            const updateSms = {
+                ...update,
+                body: updateEmail.body,
+                phone: activeUsers[owner]?.userData?.phone
+            }
+
+            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
+            await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
+
+            return;
+            //
+
             //TODO
             // return res.status(200).json(
             //     new ApiResponse(true,"Sell order started successfully")
             // )
         } else {
-            //TODO
+            const update = {
+                orderId,
+                owner,
+                message: NOTIFICATION_MESSAGE.INVALID_ACTION_TYPE
+            }
+
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+            return
+            //
             // return res.status(400).json(
             //     new ApiResponse(false,"Invalid action type specified")
             // )
         }
     } catch (error) {
-        console.log('ERROR :: openOrder : ',error);
-        
+        console.log('ERROR :: openOrder : ', error);
+        const update = {
+            orderId,
+            owner,
+            message: NOTIFICATION_MESSAGE.ORDER_FAILED
+        }
+
+        const { retryCnt } = order
+
+        if (retryCnt == 0) {
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            const updateEmail = {
+                ...update,
+                email: activeUsers[owner]?.userData?.email,
+                subject: NOTIFICATION_SUBJECT.SUCCESS_OPEN_ORDER,
+                body: NOTIFICATION_BODY.ORDER_FAILED(activeUsers[owner]?.userData?.username, update.message, order)
+            }
+
+            const updateSms = {
+                ...update,
+                body: updateEmail.body,
+                phone: activeUsers[owner]?.userData?.phone
+            }
+
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
+            await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
+
+            return;
+        } else if (!retryCnt) {
+            order.retryCnt = 2;
+        } else {
+            order.retryCnt = order.retryCnt - 1;
+        }
+
+        await redisPublisher.LPUSH("orders", JSON.stringify(order))
+        update.message += `,retrying agian for ${order.retryCnt} times`
+        await redisPublisher.publish("orders_executed", JSON.stringify(update))
+        return;
         //TODO (also might want to execute this order again)
         // return res.status(500).json(
         //     new ApiResponse(false,"Failed to start new order",null,error)
         // )        
     }
 }
-
-
 
 /**
  * 1.retrive the orderId and action from query
@@ -226,22 +458,41 @@ export async function openOrder(order:any){
  * 8.return response
  */
 
-export async function closeOrder(order:any){
+export async function closeOrder(requestedOrder: any) {
+    const { orderId, action, owner } = requestedOrder;
+    const userId = owner;
     try {
-        const {orderId,action,owner}=order;
-        const userId = owner;
 
-        if(!orderId || !action){
+        if (!orderId || !action) {
+
+            const update = {
+                orderId,
+                owner,
+                message: NOTIFICATION_MESSAGE.INVALID_DATA
+            }
+
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+            return;
             //TODO
             // return res.status(400).json(
             //     new ApiResponse(false,"orderId or action is not specified")
             // )
         }
-        
-        if(action=='SELL'){
-            const activeBuyOrders=activeUsers[userId].activeBuyOrders
-            const index = activeBuyOrders.findIndex((order:any)=>order.orderId==orderId);
-            if(index==-1){
+
+        if (action == 'SELL') {
+            const activeBuyOrders = activeUsers[userId].activeBuyOrders
+            const index = activeBuyOrders.findIndex((order: any) => order.orderId == orderId);
+            if (index == -1) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.AUTO_LIQUIDATED
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return;
                 //TODO
                 // return res.status(404).json(
                 //     new ApiResponse(false,"Order not active anymore,order might have hit the stoplos")
@@ -250,75 +501,198 @@ export async function closeOrder(order:any){
 
             const order = activeBuyOrders[index]
             const liveData = livePrices.get(order.symbol)
-            if(!liveData){
+            if (!liveData) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.LIVE_DATA_NOT_FOUND
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return;
                 //TODO
                 // return res.status(404).json(
                 //     new ApiResponse(false,"Live price not found for the symbol : ",order.symbol)
                 // )
             }
 
-            const liveSellPrice=liveData.sellPrice;
-            const sellAmt = order.qty*liveSellPrice
-            const reserved=activeUsers[userId]?.bal?.usd?.reserved
-            if(reserved || reserved==0){
-                activeUsers[userId].bal.usd.reserved=reserved+sellAmt
-                console.log('Price of user -',activeUsers[userId].userData?.username,' increased from ',reserved,' to ',(reserved+sellAmt));
-                activeBuyOrders.slice(index,1)
+            const liveSellPrice = liveData.sellPrice;
+            const sellAmt = order.qty * liveSellPrice
+            const reserved = activeUsers[userId]?.bal?.usd?.reserved;
+
+            if (reserved || reserved == 0) {
+                activeUsers[userId].bal.usd.reserved = reserved + sellAmt
+                console.log('Price of user -', activeUsers[userId].userData?.username, ' increased from ', reserved, ' to ', (reserved + sellAmt));
+                activeBuyOrders.slice(index, 1)
             } else {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.WALLET_NOT_FOUND
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return;
                 //TODO
                 // return res.status(404).json(
                 //     new ApiResponse(false,`Wallet not found for user : ${req.user.username}`)
                 // )
             }
 
-            //TODO
+            const { bal, activeSellOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
+
+            const ordersLogObj = {
+                orderId,
+                owner,
+                bal,
+                activeBuyOrders,
+                activeSellOrders,
+                activeLeverageBuyOrders,
+                activeLeverageSellOrders
+            }
+
+            const update = {
+                orderId,
+                owner,
+                message: NOTIFICATION_MESSAGE.SUCCESS_CLOSE_ORDER
+            }
+
+            const updateEmail = {
+                ...update,
+                email: activeUsers[owner]?.userData?.email,
+                subject: NOTIFICATION_SUBJECT.SUCCESS_CLOSE_ORDER,
+                body: NOTIFICATION_BODY.SUCCESS_CLOSE_ORDER(activeUsers[owner]?.userData?.username, update.message, order)
+            }
+
+            const updateSms = {
+                ...update,
+                body: updateEmail.body,
+                phone: activeUsers[owner]?.userData?.phone
+            }
+
+            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
+            await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
+
+            return;
+            //
             // return res.status(200).json(
             //     new ApiResponse(true,"Order closed successfully")
             // )
-        } else if(action=='BUY'){
-            
-            const activeSellOrders=activeUsers[userId]?.activeSellOrders
-            if(!activeSellOrders){
-                //TODO
+        } else if (action == 'BUY') {
+
+            const activeSellOrders = activeUsers[userId]?.activeSellOrders
+            if (!activeSellOrders) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.AUTO_LIQUIDATED
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return;
+                //
                 // return res.status(400).json(
                 //     new ApiResponse(false,`No active sell orders for the user : ${req.user.username}`)
                 // )
             }
-            const index = activeSellOrders.findIndex((order:any)=>order.orderId==orderId)
-            if(index==-1){
+
+            const index = activeSellOrders.findIndex((order: any) => order.orderId == orderId)
+            if (index == -1) {
                 //TODO
                 // return res.status(400).json(
                 //     new ApiResponse(false,'Order not active,order might have already hit the stopPrice based on margin given')
                 // )
             }
-            const order =activeSellOrders[index]
-            const liveData=livePrices.get(order.symbol)
-            if(!liveData){
-                //TODO
+            const order = activeSellOrders[index]
+            const liveData = livePrices.get(order.symbol)
+            if (!liveData) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.LIVE_DATA_NOT_FOUND
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return;
+
+                //
                 // return res.status(404).json(
                 //     new ApiResponse(false,`Live price not found for symbol ${order.symbol}`)
                 // )
             }
-            const liveBuyPrice=liveData.buyPrice
-            const buyAmt = order.qty*liveBuyPrice;
-            const sellAmt = order.qty*order.price
-            order.iniReqAmt-=buyAmt
+            const liveBuyPrice = liveData.buyPrice
+            const buyAmt = order.qty * liveBuyPrice;
+            const sellAmt = order.qty * order.price
+            order.iniReqAmt -= buyAmt
 
-            const reserved=activeUsers[userId]?.bal?.usd?.reserved
-            if(!reserved && reserved!=0){
+            const reserved = activeUsers[userId]?.bal?.usd?.reserved
+            if (!reserved && reserved != 0) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.WALLET_NOT_FOUND
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return;
                 //TODO
                 // return res.status(404).json(
-                //     new ApiResponse(false,`Reserved amt not fou for user : ${req.user.username}`)
+                //     new ApiResponse(false,`Reserved amt not found for user : ${req.user.username}`)
                 // )
-            
-            } 
-            activeUsers[userId].bal.usd.reserved=reserved+order.iniReqAmt+sellAmt
-            console.log(`Reserved amt of user : ${req.user.username} increased from ${reserved} to ${reserved+order.iniReqAmt+sellAmt}`);
-        
-            order.buyPrice=liveBuyPrice
-            completedSellOrders.push(order)
-            activeSellOrders.splice(index,1)
 
+            }
+
+            activeUsers[userId].bal.usd.reserved = reserved + order.iniReqAmt + sellAmt
+
+            order.buyPrice = liveBuyPrice
+            completedSellOrders.push(order)
+            activeSellOrders.splice(index, 1)
+
+
+            const { bal, activeBuyOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
+
+            const ordersLogObj = {
+                orderId,
+                owner,
+                bal,
+                activeBuyOrders,
+                activeSellOrders,
+                activeLeverageBuyOrders,
+                activeLeverageSellOrders
+            }
+
+            const update = {
+                orderId,
+                owner,
+                message: NOTIFICATION_MESSAGE.SUCCESS_CLOSE_ORDER
+            }
+
+            const updateEmail = {
+                ...update,
+                email: activeUsers[owner]?.userData?.email,
+                subject: NOTIFICATION_SUBJECT.SUCCESS_CLOSE_ORDER,
+                body: NOTIFICATION_BODY.SUCCESS_CLOSE_ORDER(activeUsers[owner]?.userData?.username, update.message, order)
+            }
+
+            const updateSms = {
+                ...update,
+                body: updateEmail.body,
+                phone: activeUsers[owner]?.userData?.phone
+            }
+
+            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
+            await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
+
+            return;
             //TODO
             // return res.status(200).json(
             //     new ApiResponse(true,`Sell order closed successfully`)
@@ -326,10 +700,50 @@ export async function closeOrder(order:any){
         }
 
     } catch (error) {
+
+        console.log('ERROR :: openLeverageOrder : ', error);
+        const update = {
+            orderId,
+            owner,
+            message: NOTIFICATION_MESSAGE.ORDER_FAILED
+        }
+
+        const { retryCnt } = requestedOrder
+
+        if (retryCnt == 0) {
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            const updateEmail = {
+                ...update,
+                email: activeUsers[owner]?.userData?.email,
+                subject: NOTIFICATION_SUBJECT.ORDER_FAILED,
+                body: NOTIFICATION_BODY.ORDER_FAILED(activeUsers[owner]?.userData?.username, update.message, requestedOrder)
+            }
+
+            const updateSms = {
+                ...update,
+                body: updateEmail.body,
+                phone: activeUsers[owner]?.userData?.phone
+            }
+
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
+            await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
+
+            return;
+        } else if (!retryCnt) {
+            requestedOrder.retryCnt = 2;
+        } else {
+            requestedOrder.retryCnt = requestedOrder.retryCnt - 1;
+        }
+
+        await redisPublisher.LPUSH("orders", JSON.stringify(requestedOrder))
+        update.message += `,retrying agian for ${requestedOrder.retryCnt} times`
+        await redisPublisher.publish("orders_executed", JSON.stringify(update))
+        return;
         //TODO
 
         // return res.status(500).json(
-            // new ApiResponse(false,`Failed to close the order`)
+        // new ApiResponse(false,`Failed to close the order`)
         // )
     }
 }
@@ -365,47 +779,69 @@ export async function closeOrder(order:any){
  * 11.return response
  */
 
-export async function openLeverageOrder(order:any){
+export async function openLeverageOrder(requestedOrder: any) {
+    const { action, owner, orderId } = requestedOrder;
+    const userId = owner
     try {
-        const {action,owner,orderId} = order;
-        const userId=owner
 
-        if(action=='BUY'){
-            const {symbol,qty:qtyStr,stoploss:stoplossStr,margin:marginStr}=owner;
-            if(!leverageBuyPQS[symbol]){
-                leverageBuyPQS[symbol]=new Heap((order1:any,order2:any)=>order2.stoploss-order1.stoploss)
+        if (action == 'BUY') {
+            const { symbol, qty: qtyStr, stoploss: stoplossStr, margin: marginStr } = requestedOrder;
+            if (!leverageBuyPQS[symbol]) {
+                leverageBuyPQS[symbol] = new Heap((order1: any, order2: any) => order2.stoploss - order1.stoploss)
             }
-            const stoploss=Number(stoplossStr)
-            const qty=Number(qtyStr)
-            const margin=Number(marginStr)
+            const stoploss = Number(stoplossStr)
+            const qty = Number(qtyStr)
+            const margin = Number(marginStr)
             const userId = owner;
-            if(!userId){
-            //TODO
-                // return res.status(400).json(
-                //     new ApiResponse(false,"userId not found, unauthorized")
-                // )
-            } else if(!symbol || !qty ){
+            if (!symbol || !qty) {
 
                 console.log(`Symbol or qty not provided in the request`);
-            //TODO
+                const obj = {
+                    orderId,
+                    message: NOTIFICATION_MESSAGE.INVALID_DATA,
+                    owner
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(obj))
+                return;
+
+                //
 
                 // return res.status(400).json(
                 //     new ApiResponse(false,"symbol or quantity not provided in the request")
                 // )
             }
 
-            const liveData=livePrices.get(symbol)
-            if(!liveData){
-                return res.status(404).json(
-                    new ApiResponse(false,`Live data not foud for symbol : ${symbol}`)
-                )
+            const liveData = livePrices.get(symbol)
+            if (!liveData) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.LIVE_DATA_NOT_FOUND
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return;
+                // return res.status(404).json(
+                //     new ApiResponse(false, `Live data not foud for symbol : ${symbol}`)
+                // )
             }
 
-            const {buyPrice:liveBuyPrice,sellPrice:liveSellPrice} = liveData
+            const { buyPrice: liveBuyPrice, sellPrice: liveSellPrice } = liveData
 
             const buyAmt = qty * liveBuyPrice
-            const leverageScale = buyAmt/margin
-            if(leverageScale>maxLeverageScale){
+            const leverageScale = buyAmt / margin
+            if (leverageScale > maxLeverageScale) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.INVALID_LEVERAGE
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return;
                 //TODO
                 // return res.status(400).json(
                 //     new ApiResponse(false,`This platform only supports upto ${maxLeverageScale}X leverage,reduce qty or increase margin`)
@@ -413,148 +849,357 @@ export async function openLeverageOrder(order:any){
             }
 
             const reserved = activeUsers[userId]?.bal?.usd?.reserved
-            if(!reserved){
-            //TODO
+            if (!reserved) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.WALLET_NOT_FOUND
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return;
+                //TODO
 
                 // return res.status(400).json(
                 //     new ApiResponse(false,`Reserved amout not foud for the user : ${req.user.username}`)
                 // )
             }
 
-            if(reserved<margin){
+            if (reserved < margin) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.INSUFFICIENT_BALANCE
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return;
                 //TODO
                 // return res.status(400).json(
                 //     new ApiResponse(false,`Insufficient marin amount, current tradable balance : ${reserved}`)
                 // )
             }
 
-            activeUsers[userId].bal.usd.reserved=reserved-margin
+            activeUsers[userId].bal.usd.reserved = reserved - margin
 
-            const stoplossBE=liveSellPrice-(margin/qty)
+            const stoplossBE = liveSellPrice - (margin / qty)
             let finalStoploss;
-            
-            if(stoploss){
-                if(stoploss<stoplossBE){
+
+            if (stoploss) {
+                if (stoploss < stoplossBE) {
+                    const update = {
+                        orderId,
+                        owner,
+                        message: NOTIFICATION_MESSAGE.INVALID_STOPLOSS
+                    }
+
+                    await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                    return;
                     //TODO
                     // return res.status(400).json(
                     //     new ApiResponse(false,"Stoploss given by you excceed the margin coverage limit,decrease stoploss or increase margin")
                     // )
                 } else {
-                    finalStoploss=stoploss
+                    finalStoploss = stoploss
                 }
             } else {
-                finalStoploss=stoplossBE
+                finalStoploss = stoplossBE
             }
 
-            const order ={
+            const order = {
                 orderId,
-                action:"BUY",
+                action: "BUY",
                 qty,
                 symbol,
-                price:liveBuyPrice,
+                price: liveBuyPrice,
                 margin,
-                stoploss:finalStoploss,
-                owner:userId
+                stoploss: finalStoploss,
+                owner: userId
             }
 
             leverageBuyPQS[symbol].push(order)
-            if(!activeUsers[userId].activeLeverageBuyOrders){
-                activeUsers[userId].activeLeverageBuyOrders=[order]
+            if (!activeUsers[userId].activeLeverageBuyOrders) {
+                activeUsers[userId].activeLeverageBuyOrders = [order]
             } else {
                 activeUsers[userId].activeLeverageBuyOrders.psuh(order)
             }
 
+              const { bal,activeBuyOrders, activeSellOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
+
+            const ordersLogObj = {
+                orderId,
+                owner,
+                bal,
+                activeBuyOrders,
+                activeSellOrders,
+                activeLeverageBuyOrders,
+                activeLeverageSellOrders
+            }
+
+            const update = {
+                orderId,
+                owner,
+                message: NOTIFICATION_MESSAGE.SUCCESS_CLOSE_ORDER
+            }
+
+            const updateEmail = {
+                ...update,
+                email: activeUsers[owner]?.userData?.email,
+                subject: NOTIFICATION_SUBJECT.SUCCESS_CLOSE_ORDER,
+                body: NOTIFICATION_BODY.SUCCESS_CLOSE_ORDER(activeUsers[owner]?.userData?.username, update.message, order)
+            }
+
+            const updateSms = {
+                ...update,
+                body: updateEmail.body,
+                phone: activeUsers[owner]?.userData?.phone
+            }
+
+            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
+            await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
+
+            return;
             //TODO
 
             // return res.status(201).json(
             //     new ApiResponse(true,`Leverage buy order placed successfully`)
             // )
-        } else if(action=='SELL'){
-            const {symbol,qty:qtyStr,margin:marginStr,stopPrice:stopPriceStr}=order
-            const margin=Number(marginStr)
+        } else if (action == 'SELL') {
+            const { symbol, qty: qtyStr, margin: marginStr, stopPrice: stopPriceStr } = requestedOrder
+            const margin = Number(marginStr)
             const stopPrice = Number(stopPriceStr)
-            const qty=Number(qtyStr)
-            if(margin==0){
+            const qty = Number(qtyStr)
+            if (margin == 0) {
+                console.log(`Symbol or qty not provided in the request`);
+                const update = {
+                    orderId,
+                    message: NOTIFICATION_MESSAGE.INVALID_MARGIN,
+                    owner
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+                return;
                 // return res.status(400).json(
                 //     new ApiResponse(false,`Margin cannot be 0`)
                 // )
-            }else if(!margin || !qty || !symbol){
+            } else if (!margin || !qty || !symbol) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.LIVE_DATA_NOT_FOUND
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return;
                 // return res.status(400).json(
                 //     new ApiResponse(false,`Invalid data provided,margin quantity and symbol in required`)
                 // )
             }
 
-            const liveData=livePrices.get(symbol)
-            if(!liveData){
+            const liveData = livePrices.get(symbol)
+            if (!liveData) {
+                const update = {
+                    orderId,
+                    message: NOTIFICATION_MESSAGE.LIVE_DATA_NOT_FOUND,
+                    owner
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+                return;
                 // return res.status(404).json(
                 //     new ApiResponse(false,`Liev data not foud for symbol : ${symbol}`)
                 // )
             }
-            if(!leverageSellPQS[symbol]){
-                leverageBuyPQS[symbol]=new Heap((order1:any,order2:any)=>order1.stopPrice-order2.stopPrice)
+            if (!leverageSellPQS[symbol]) {
+                leverageBuyPQS[symbol] = new Heap((order1: any, order2: any) => order1.stopPrice - order2.stopPrice)
             }
-            const{ buyPrice:liveBuyPrice,sellPrice:liveSellPrice}=liveData
+            const { buyPrice: liveBuyPrice, sellPrice: liveSellPrice } = liveData
 
-            const borrowedAmt = qty*liveBuyPrice
-            const reserved=activeUsers[userId]?.bal?.usd?.reserved
-            if(!reserved){
+            const borrowedAmt = qty * liveBuyPrice
+            const reserved = activeUsers[userId]?.bal?.usd?.reserved
+            if (!reserved) {
+                const update = {
+                    orderId,
+                    message: NOTIFICATION_MESSAGE.WALLET_NOT_FOUND,
+                    owner
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+                return;
                 // return res.status(500).json(
                 //     new ApiResponse(false,`Reserved balance not found for user : ${req.user.username}`)
                 // )
-            } else if(reserved<margin){
+            } else if (reserved < margin) {
+                const update = {
+                    orderId,
+                    message: NOTIFICATION_MESSAGE.INSUFFICIENT_BALANCE,
+                    owner
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+                return;
                 // return res.status(400).json(
                 //     new ApiResponse(false,`Insufficient balance, current balance : ${reserved}`)
                 // )
             }
 
-            const leverageScale = borrowedAmt/margin
-            if(leverageScale>maxLeverageScale){
+            const leverageScale = borrowedAmt / margin
+            if (leverageScale > maxLeverageScale) {
+                const obj = {
+                    orderId,
+                    message: NOTIFICATION_MESSAGE.INVALID_LEVERAGE,
+                    owner
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(obj))
+                return;
                 // return res.status(400).json(
                 //     new ApiResponse(false,`This platform supports maximum upto 10x leverage,increase margin or decrease quantity`)
                 // )
             }
-            const stopPriceBE = liveBuyPrice+(margin/qty)
-            let finalStopPrice=stopPriceBE
-            if(stopPrice){
-                if(stopPrice>stopPriceBE){
+            const stopPriceBE = liveBuyPrice + (margin / qty)
+            let finalStopPrice = stopPriceBE
+            if (stopPrice) {
+                if (stopPrice > stopPriceBE) {
+                const update = {
+                    orderId,
+                    message: NOTIFICATION_MESSAGE.INVALID_STOPPRICE,
+                    owner
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+                return;
                     // return res.status(400).json(
                     //    new ApiResponse(false,`Stopprice exceeds the max stopPrice based on allocated margin,increase margin or decrease stoploss`)
                     // )
                 } else {
-                    finalStopPrice=stopPrice
+                    finalStopPrice = stopPrice
                 }
             }
-            activeUsers[userId].bal.usd.reserved=reserved-margin
-            const orderId=uuidv4()
+            activeUsers[userId].bal.usd.reserved = reserved - margin
+            const orderId = uuidv4()
             console.log(`Borrowed : ${borrowedAmt} from exness for orderId : ${orderId}`);
-            const newOrder ={
+
+            const newOrder = {
                 orderId,
-                owner:userId,
+                owner: userId,
                 qty,
-                price:liveSellPrice,
+                price: liveSellPrice,
                 margin,
-                leverage:borrowedAmt,
-                stopPrice:finalStopPrice,
-                action:'SELL'
+                leverage: borrowedAmt,
+                stopPrice: finalStopPrice,
+                action: 'SELL'
             }
 
             leverageSellPQS[symbol].push(newOrder)
-            if(!activeUsers[userId].activeLeverageSellOrders){
-                activeUsers[userId].activeLeverageSellOrders=[newOrder]
+            if (!activeUsers[userId].activeLeverageSellOrders) {
+                activeUsers[userId].activeLeverageSellOrders = [newOrder]
             } else {
                 activeUsers[userId].activeLeverageSellOrders.push(newOrder)
             }
 
+            const { bal,activeBuyOrders, activeSellOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
+
+            const ordersLogObj = {
+                orderId,
+                owner,
+                bal,
+                activeBuyOrders,
+                activeSellOrders,
+                activeLeverageBuyOrders,
+                activeLeverageSellOrders
+            }
+
+            const update = {
+                orderId,
+                owner,
+                message: NOTIFICATION_MESSAGE.SUCCESS_OPEN_ORDER
+            }
+
+            const updateEmail = {
+                ...update,
+                email: activeUsers[owner]?.userData?.email,
+                subject: NOTIFICATION_SUBJECT.SUCCESS_CLOSE_ORDER,
+                body: NOTIFICATION_BODY.SUCCESS_OPEN_ORDER(activeUsers[owner]?.userData?.username, update.message, newOrder)
+            }
+
+            const updateSms = {
+                ...update,
+                body: updateEmail.body,
+                phone: activeUsers[owner]?.userData?.phone
+            }
+
+            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
+            await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
+
+            return;
             // return res.status(201).json(
             //     new ApiResponse(true,`Leverage sell order started successfully`)
             // )
 
-        }else {
+        } else {
+            const update = {
+                orderId,
+                owner,
+                message: NOTIFICATION_MESSAGE.INVALID_ACTION_TYPE
+            }
+
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+            return
             // return res.status(400).json(
             //     new ApiResponse(false,`Invalid action type specified`)
             // )
         }
     } catch (error) {
+
+        console.log('ERROR :: openLeverageOrder : ', error);
+        const update = {
+            orderId,
+            owner,
+            message: NOTIFICATION_MESSAGE.ORDER_FAILED
+        }
+
+        const { retryCnt } = requestedOrder
+
+        if (retryCnt == 0) {
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            const updateEmail = {
+                ...update,
+                email: activeUsers[owner]?.userData?.email,
+                subject: NOTIFICATION_SUBJECT.ORDER_FAILED,
+                body: NOTIFICATION_BODY.ORDER_FAILED(activeUsers[owner]?.userData?.username, update.message, requestedOrder)
+            }
+
+            const updateSms = {
+                ...update,
+                body: updateEmail.body,
+                phone: activeUsers[owner]?.userData?.phone
+            }
+
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
+            await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
+
+            return;
+        } else if (!retryCnt) {
+            requestedOrder.retryCnt = 2;
+        } else {
+            requestedOrder.retryCnt = requestedOrder.retryCnt - 1;
+        }
+
+        await redisPublisher.LPUSH("orders", JSON.stringify(requestedOrder))
+        update.message += `,retrying agian for ${requestedOrder.retryCnt} times`
+        await redisPublisher.publish("orders_executed", JSON.stringify(update))
+        return;
         // return res.status(500).json(
         //     new ApiResponse(false,`Failed to place leverage buy order`)
         // )
@@ -591,115 +1236,311 @@ export async function openLeverageOrder(order:any){
  * 12.push the order into compltedLeverageSellOrders
  * 13.return response
  */
-export async function closeLeverageOrder(order:any){
+export async function closeLeverageOrder(requestedOrder: any) {
+    const { action, orderId, owner } = requestedOrder;
     try {
-        const {action,orderId,owner}=order;
-        if(orderId){
+        if (!orderId) {
+            const update = {
+                orderId,
+                owner,
+                message: NOTIFICATION_MESSAGE.INVALID_DATA
+            }
+
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+            return
             // return res.status(400).json(
             //     new ApiResponse(false,`Order id not found inside query`)
             // )
         }
-        const userId=owner;
-        if(action=='BUY'){
-            const activeLeverageSellOrders=activeUsers[userId]?.activeLeverageSellOrders
-            if(!activeLeverageSellOrders){
+        const userId = owner;
+        if (action == 'BUY') {
+            const activeLeverageSellOrders = activeUsers[userId]?.activeLeverageSellOrders
+            if (!activeLeverageSellOrders) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.AUTO_LIQUIDATED
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return
                 // return res.status(404).json(
                 //     new ApiResponse(false,`No active leverage sell orders found,order is already closed manually or automatically closed due to stopPrice hit`)
                 // )
             }
-            const index = activeLeverageSellOrders.findIndex((order:any)=>order.orderId==orderId)
-            if(index==-1){
+            const index = activeLeverageSellOrders.findIndex((order: any) => order.orderId == orderId)
+            if (index == -1) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.AUTO_LIQUIDATED
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return
                 // return res.status(404).json(
                 //     new ApiResponse(false,`Order not found,order is already closed manually or automatically closed due to stopPrice hit or invalid order Id`)
                 // )
             }
             const order = activeLeverageSellOrders[index]
-            const reservedBuyAmt=order.leverage + order.margin
-            const liveData=livePrices.get(order.symbol)
-            if(!liveData){
+            const reservedBuyAmt = order.leverage + order.margin
+            const liveData = livePrices.get(order.symbol)
+            if (!liveData) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.LIVE_DATA_NOT_FOUND
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return
                 // return res.status(500).json(
                 //     new ApiResponse(false,`Live data not found for symbol : ${order.symbol}`)
                 // )
             }
-            const {buyPrice:liveBuyPrice}=liveData
+            const { buyPrice: liveBuyPrice } = liveData
             const buyAmt = order.qty * liveBuyPrice
-            const remainningReservedBuyAmt=reservedBuyAmt-buyAmt
+            const remainningReservedBuyAmt = reservedBuyAmt - buyAmt
             const sellAmt = order.qty * order.price
 
-            const netSellAmt=sellAmt+remainningReservedBuyAmt
-            const netUserProfit=netSellAmt-order.leverage
+            const netSellAmt = sellAmt + remainningReservedBuyAmt
+            const netUserProfit = netSellAmt - order.leverage
             console.log(`Returned the amout borrowed from exness : ${order.leverage}`);
             const reserved = activeUsers[userId]?.bal?.usd?.reserved
-            
-            if(!reserved && reserved!=0){
+
+            if (!reserved && reserved != 0) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.WALLET_NOT_FOUND
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return
                 // return res.status(400).json(
                 //     new ApiResponse(false,`Reserved amout not found for user : ${req.user.username}`)
                 // )
             }
-            
+
             activeUsers[userId].bal.usd.reserved = reserved + netUserProfit
-            console.log(`Reserved amout of user : ${req.user.username} increased from ${reserved} to ${reserved+netUserProfit}`);
-            
-            order.buyPrice=liveBuyPrice
-            activeLeverageSellOrders.splice(index,1)
+
+            order.buyPrice = liveBuyPrice
+            activeLeverageSellOrders.splice(index, 1)
             completedLeverageSellOrders.push(order)
 
+            const { bal,activeBuyOrders, activeSellOrders, activeLeverageBuyOrders } = activeUsers[owner]
+
+            const ordersLogObj = {
+                orderId,
+                owner,
+                bal,
+                activeBuyOrders,
+                activeSellOrders,
+                activeLeverageBuyOrders,
+                activeLeverageSellOrders
+            }
+
+            const update = {
+                orderId,
+                owner,
+                message: NOTIFICATION_MESSAGE.SUCCESS_CLOSE_ORDER
+            }
+
+            const updateEmail = {
+                ...update,
+                email: activeUsers[owner]?.userData?.email,
+                subject: NOTIFICATION_SUBJECT.SUCCESS_CLOSE_ORDER,
+                body: NOTIFICATION_BODY.SUCCESS_CLOSE_ORDER(activeUsers[owner]?.userData?.username, update.message, order)
+            }
+
+            const updateSms = {
+                ...update,
+                body: updateEmail.body,
+                phone: activeUsers[owner]?.userData?.phone
+            }
+
+            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
+            await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
+
+            return;
             // return res.status(200).json(
             //     new ApiResponse(true,`Leverage sell order closed successfully`)
             // )
-            
-        }else if(action=='SELL'){
+
+        } else if (action == 'SELL') {
             const activeLeverageBuyOrders = activeUsers[userId]?.activeLeverageBuyOrders
 
-            const index = activeLeverageBuyOrders.findIndex((order:any)=>order.orderId==orderId)
-            if(index==-1){
+            const index = activeLeverageBuyOrders.findIndex((order: any) => order.orderId == orderId)
+            if (index == -1) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.AUTO_LIQUIDATED
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return
                 // return res.status(400).json(
                 //     new ApiResponse(false,`This buy order is already closed by you or cloed automatically because of stoploss`)
                 // )
             }
-            const order =activeLeverageBuyOrders[index]
+            const order = activeLeverageBuyOrders[index]
 
-            const liveData=livePrices.get(order.symbol)
-            if(!liveData){
+            const liveData = livePrices.get(order.symbol)
+            if (!liveData) {
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.LIVE_DATA_NOT_FOUND
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return
                 // return res.status(500).json(
                 //     new ApiResponse(false,`live data not foud for the symbol : ${order.symbol}`)
                 // )
             }
-            const liveSellPrice=liveData.sellPrice
+            const liveSellPrice = liveData.sellPrice
             const sellAmt = liveSellPrice * order.qty
             const buyAmt = order.qty * order.price
 
-            const borrowedAmt = buyAmt-order.margin
-            const userProfit = sellAmt-borrowedAmt
+            const borrowedAmt = buyAmt - order.margin
+            const userProfit = sellAmt - borrowedAmt
 
             console.log(`Returning borrowed amt from exness : ${borrowedAmt}`);
             console.log(`userprofit from this leverage buy order : ${userProfit}`);
 
-            order.sellPrice=liveSellPrice
+            order.sellPrice = liveSellPrice
             const reserved = activeUsers[userId]?.bal?.usd?.reserved
 
-            if(!reserved && reserved!=0){
-                console.log(`Reserved var not fou for user : ${activeUsers[userId]?.userData?.username}`);
+            if (!reserved && reserved != 0) {
+                 const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.WALLET_NOT_FOUND
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return
                 // return res.status(404).json(
                 //     new ApiResponse(false,`Reserved varibale not found for the user : ${activeUsers[userId]?.userData.username}`)
                 // )
             }
-            
-            activeUsers[userId].bal.usd.reserved=reserved+userProfit
-            console.log(`balance of user ${activeUsers[userId]?.userData?.username} increased from ${reserved} to ${reserved+userProfit}`);
-            activeLeverageBuyOrders.splice(index,1)
+
+            activeUsers[userId].bal.usd.reserved = reserved + userProfit
+            console.log(`balance of user ${activeUsers[userId]?.userData?.username} increased from ${reserved} to ${reserved + userProfit}`);
+            activeLeverageBuyOrders.splice(index, 1)
 
             completedLeverageBuyOrders.push(order)
 
+
+             const { bal,activeBuyOrders, activeSellOrders, activeLeverageSellOrders } = activeUsers[owner]
+
+            const ordersLogObj = {
+                orderId,
+                owner,
+                bal,
+                activeBuyOrders,
+                activeSellOrders,
+                activeLeverageBuyOrders,
+                activeLeverageSellOrders
+            }
+
+            const update = {
+                orderId,
+                owner,
+                message: NOTIFICATION_MESSAGE.SUCCESS_CLOSE_ORDER
+            }
+
+            const updateEmail = {
+                ...update,
+                email: activeUsers[owner]?.userData?.email,
+                subject: NOTIFICATION_SUBJECT.SUCCESS_CLOSE_ORDER,
+                body: NOTIFICATION_BODY.SUCCESS_CLOSE_ORDER(activeUsers[owner]?.userData?.username, update.message, order)
+            }
+
+            const updateSms = {
+                ...update,
+                body: updateEmail.body,
+                phone: activeUsers[owner]?.userData?.phone
+            }
+
+            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
+            await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
+
+            return;
             // return res.status(200).json(
             //     new ApiResponse(true,`Leverage buy order closed successfully`)
             // )
-        }else {
+        } else {
+            const update = {
+                orderId,
+                owner,
+                message: NOTIFICATION_MESSAGE.INVALID_ACTION_TYPE
+            }
+
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+            return
             // return res.status(400).json(
             //     new ApiResponse(false,`Invalid action type specified`)
             // )
         }
     } catch (error) {
+
+        console.log('ERROR :: closeLeverageOrder : ', error);
+        const update = {
+            orderId,
+            owner,
+            message: NOTIFICATION_MESSAGE.ORDER_FAILED
+        }
+
+        const { retryCnt } = requestedOrder
+
+        if (retryCnt == 0) {
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+            const updateEmail = {
+                ...update,
+                email: activeUsers[owner]?.userData?.email,
+                subject: NOTIFICATION_SUBJECT.ORDER_FAILED,
+                body: NOTIFICATION_BODY.ORDER_FAILED(activeUsers[owner]?.userData?.username, update.message, requestedOrder)
+            }
+
+            const updateSms = {
+                ...update,
+                body: updateEmail.body,
+                phone: activeUsers[owner]?.userData?.phone
+            }
+
+            await redisPublisher.publish("orders_executed", JSON.stringify(update))
+            await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
+            await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
+
+            return;
+        } else if (!retryCnt) {
+            requestedOrder.retryCnt = 2;
+        } else {
+            requestedOrder.retryCnt = requestedOrder.retryCnt - 1;
+        }
+
+        await redisPublisher.LPUSH("orders", JSON.stringify(requestedOrder))
+        update.message += `,retrying agian for ${requestedOrder.retryCnt} times`
+        await redisPublisher.publish("orders_executed", JSON.stringify(update))
+        return;
+
         // return res.status(500).json(
         //     new ApiResponse(false,`Failed to close the leverage order`)
         // )

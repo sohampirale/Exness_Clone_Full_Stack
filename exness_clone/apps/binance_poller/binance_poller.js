@@ -17,9 +17,7 @@ let reqSymbolsSet=false;
 
 ws.on("message",async (msg) => {
 
-  
   const allData = JSON.parse(msg);
-  // console.log(allData);
   
   console.log('allData.length : ',allData.length);
   const DBData={
@@ -36,17 +34,19 @@ ws.on("message",async (msg) => {
       await publisher.rPush("reqSymbols",symbol)
     }
 
-    await publisher.publish(symbol,JSON.stringify({
+    publisher.publish(symbol,JSON.stringify({
       markPrice,
       buyPrice:generateIncreasedBuyPrice(markPrice),
       sellPrice:generateDecreasedSellPrice(markPrice)
     }))
+
     DBData[symbol]=markPrice
   });
 
+  console.log('DBData.size : ',Object.keys(DBData).length);
+
   reqSymbolsSet=true
   console.log('published live data to redis pub sub');
-
   await publisher.rPush("dump_timescaleDB",JSON.stringify(DBData));
   console.log('Pushed live data to redis queue');
   

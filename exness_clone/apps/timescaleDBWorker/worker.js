@@ -28,16 +28,16 @@ async function dumpIntoTimescaleDB() {
     const len = await worker.lLen("dump_timescaleDB")
     console.log('current length of the queue : ', len);
 
-    let cnt = 30;
-    if (len < 30) {
-        cnt = len;
-    }
+    let cnt = len;
+    // if (len < 30) {
+        // cnt = len;
+    // }
     const finalData = {}
     for (let i = 0; i < cnt; i++) {
         const popped = await worker.lPop("dump_timescaleDB")
 
         const data = JSON.parse(popped)
-
+        
         const timeStr = data.time;
         if (!timeStr) {
             console.log('Time not given');
@@ -78,6 +78,8 @@ async function dumpIntoTimescaleDB() {
             queries.push(query)
         }
     })
+    console.log('queries.length : ',queries.length);
+    
 
     try {
         console.log('Dumping all data to the DB');
@@ -110,10 +112,12 @@ async function refresh5m(){
 console.log("Every 5 minutes:", new Date().toISOString());
     try {
         await prisma.$executeRawUnsafe(`
-        CALL refresh_continuous_aggregate('candles_5m', now() - interval '30 minutes', now());
+        CALL refresh_continuous_aggregate('candles_5m', (NOW() - INTERVAL '30 minutes')::timestamp, (NOW())::timestamp);
     `);
+      console.log('refresh cmd successfull for candles_5m');
+
     } catch (error) {
-        console.log('failed to refresh for 5 minute candles');
+        console.log('failed to refresh for 5 minute candles : ',error);
     }
 }
 
@@ -121,8 +125,10 @@ async function refresh1h(){
     console.log("Every 1 hour:", new Date().toISOString());
     try {
         await prisma.$executeRawUnsafe(`
-            CALL refresh_continuous_aggregate('candles_1h', now() - interval '6 hours', now());
+            CALL refresh_continuous_aggregate('candles_1h', (NOW() - INTERVAL '6 hours')::timestamp, (NOW())::timestamp);
         `);
+          console.log('refresh cmd successfull for candles_1h');
+
     } catch (error) {
         console.log('failed to refresh for 5 minute candles');
     }
@@ -160,7 +166,6 @@ async function queryBitcoinPerminute(){
 
         const response = await prisma.candles_1m.findMany()
 
-        console.log('response[5].high is : ',response[5].high);
     } catch (error) {
         console.log('Failed to retrive bitcoin 1m : ',error);
         

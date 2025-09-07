@@ -22,6 +22,7 @@ model user{
   username String @unique
   email String @unique
   password String
+  phone String?
 }
 
 //Uncomment them and run npx prisma genearate if you want to prisma functionality on materialized views (candles_1m,candles_5m,candles_1h)

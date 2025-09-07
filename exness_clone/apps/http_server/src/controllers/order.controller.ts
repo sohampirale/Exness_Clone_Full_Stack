@@ -3,7 +3,7 @@ import ApiResponse from "../lib/ApiResponse.js";
 import type { ExpressRequest } from "../interfaces/index.js";
 import { createClient } from "redis";
 import { sellPQS, activeUsers, livePrices, buyPQS, completedSellOrders, maxLeverageScale, leverageBuyPQS, completedLeverageBuyOrders, leverageSellPQS, completedLeverageSellOrders, redisSubscriber, redisQueue } from "../variables/index.js";
-import {v4 as uuidv4} from "uuid"
+import { v4 as uuidv4 } from "uuid"
 
 
 import { Heap } from 'heap-js';
@@ -31,190 +31,190 @@ import { act } from "react";
  * 9.Return response
  */
 
-export async function openOrder(req:ExpressRequest,res:Response){
-    const userId=req.user.id;
+export async function openOrder(req: ExpressRequest, res: Response) {
+    const userId = req.user.id;
 
-    const {action,symbol,qty,stoploss,margin}=req.query;
-    const order ={
-        orderId:uuidv4(),
+    const { action, symbol, qty, stoploss, margin } = req.query;
+    const order = {
+        orderId: uuidv4(),
         action,
         symbol,
         qty,
         stoploss,
         margin,
-        type:'NORMAL',
-        request:"OPEN",
-        owner:userId
+        type: 'NORMAL',
+        request: "OPEN",
+        owner: userId
     }
 
-    await redisQueue.lPush("orders",JSON.stringify(order))
+    await redisQueue.lPush("orders", JSON.stringify(order))
 
     console.log(`pushed ordet to "orders" redis queue`);
-    console.log('order : ',order);
-    
+    console.log('order : ', order);
+
     return res.status(200).json(
-        new ApiResponse(true,`Order received received,...processing`,{
-            orderId:order.orderId
+        new ApiResponse(true, `Order received received,...processing`, {
+            orderId: order.orderId
         })
     )
 
     try {
-        console.log('req.user : ',req.user);
-        const {action}=req.query
-        if(action=='BUY'){
-            const {symbol,qty:qtyStr,stoploss}=req.query;
+        console.log('req.user : ', req.user);
+        const { action } = req.query
+        if (action == 'BUY') {
+            const { symbol, qty: qtyStr, stoploss } = req.query;
 
-            if(!buyPQS[symbol]){
-                buyPQS[symbol]=new Heap((order1:any,order2:any)=>order2.stoploss-order1.stoploss)
+            if (!buyPQS[symbol]) {
+                buyPQS[symbol] = new Heap((order1: any, order2: any) => order2.stoploss - order1.stoploss)
             }
 
-            const qty=Number(qtyStr)
-            if(!symbol || !qtyStr || !action || !stoploss){
+            const qty = Number(qtyStr)
+            if (!symbol || !qtyStr || !action || !stoploss) {
                 return res.status(400).json(
-                    new ApiResponse(false,`Invalid data provided`)
-                )     
+                    new ApiResponse(false, `Invalid data provided`)
+                )
             }
-            
-            const livePriceData=livePrices.get(symbol);
-            const liveBuyPrice =livePriceData?.buyPrice
-            console.log('livePriceData : ',livePriceData);
-            
-            if(!liveBuyPrice){
+
+            const livePriceData = livePrices.get(symbol);
+            const liveBuyPrice = livePriceData?.buyPrice
+            console.log('livePriceData : ', livePriceData);
+
+            if (!liveBuyPrice) {
                 return res.status(404).json(
-                    new ApiResponse(false,`Live price not found for the symbol : ${symbol}`)
-                )        
+                    new ApiResponse(false, `Live price not found for the symbol : ${symbol}`)
+                )
             }
-    
-            console.log('liveBuyPrice : ',liveBuyPrice);
-            
-            const reqBal=liveBuyPrice*qty;
-            const reservedBal=activeUsers[req.user.id]?.bal?.usd?.reserved
-    
-            console.log('reqBal : ',reqBal);
-            console.log('reservedBal : ',reservedBal);
-            
-            if(!reservedBal){
+
+            console.log('liveBuyPrice : ', liveBuyPrice);
+
+            const reqBal = liveBuyPrice * qty;
+            const reservedBal = activeUsers[req.user.id]?.bal?.usd?.reserved
+
+            console.log('reqBal : ', reqBal);
+            console.log('reservedBal : ', reservedBal);
+
+            if (!reservedBal) {
                 return res.status(400).json(
-                    new ApiResponse(false,`No reserved balance found for the user`)
-                )     
-            } else if(reservedBal<reqBal){
-                
+                    new ApiResponse(false, `No reserved balance found for the user`)
+                )
+            } else if (reservedBal < reqBal) {
+
                 return res.status(400).json(
-                    new ApiResponse(false,`Insufficient reserved balance of the user`)
-                )  
+                    new ApiResponse(false, `Insufficient reserved balance of the user`)
+                )
             }
             console.log('hey');
-            
 
-            const newOrder={
-                orderId:uuidv4(),
-                action:'BUY',
+
+            const newOrder = {
+                orderId: uuidv4(),
+                action: 'BUY',
                 symbol,
-                price:liveBuyPrice,
+                price: liveBuyPrice,
                 qty,
                 stoploss,
-                owner:req.user.id
+                owner: req.user.id
             }
 
             console.log('hi');
 
-            if(!activeUsers[req.user.id].activeBuyOrders){
-                activeUsers[req.user.id].activeBuyOrders=[newOrder]
+            if (!activeUsers[req.user.id].activeBuyOrders) {
+                activeUsers[req.user.id].activeBuyOrders = [newOrder]
             } else {
                 activeUsers[req.user.id].activeBuyOrders.push(newOrder)
             }
             console.log('updated activeBuyOrders');
-            
-            activeUsers[req.user.id].bal.usd.reserved=reservedBal-reqBal
-            console.log('updated balance of user : ',activeUsers[req.user.id].bal.usd.reserved);
-            
-            const pq=buyPQS[symbol]
-            if(!pq){
-                console.log('PQ nto initialized ofr symbol : ',symbol);
+
+            activeUsers[req.user.id].bal.usd.reserved = reservedBal - reqBal
+            console.log('updated balance of user : ', activeUsers[req.user.id].bal.usd.reserved);
+
+            const pq = buyPQS[symbol]
+            if (!pq) {
+                console.log('PQ nto initialized ofr symbol : ', symbol);
             } else {
-                console.log('New order pushed into buyPQ of symbol : ',symbol);
-                
+                console.log('New order pushed into buyPQ of symbol : ', symbol);
+
                 pq.push(newOrder)
             }
 
             return res.status(200).json(
-                new ApiResponse(true,"New order created successfully",newOrder)
-            )     
+                new ApiResponse(true, "New order created successfully", newOrder)
+            )
 
-        } else if(action=='SELL'){
-            const {symbol,qty:qtyStr,margin:marginStr}=req.query;
+        } else if (action == 'SELL') {
+            const { symbol, qty: qtyStr, margin: marginStr } = req.query;
 
-            if(!sellPQS[symbol]){
-                sellPQS[symbol]=new Heap((order1:any,order2:any)=>order1.stopPrice-order2.stopPrice)
+            if (!sellPQS[symbol]) {
+                sellPQS[symbol] = new Heap((order1: any, order2: any) => order1.stopPrice - order2.stopPrice)
             }
-            const qty=Number(qtyStr)
+            const qty = Number(qtyStr)
             const margin = Number(marginStr)
-            if(margin<=0){
+            if (margin <= 0) {
                 return res.status(400).json(
-                   new ApiResponse(false,"Margin cannot be less than 0")
+                    new ApiResponse(false, "Margin cannot be less than 0")
                 )
             }
 
-            const livePriceData=livePrices.get(symbol);
-            const livePrice=livePriceData.sellPrice;
-            const iniReqAmt = (qty*livePrice)+margin
-            console.log('Live sell price of ',symbol,' is : ',livePrice);
-            const reservedBal=activeUsers[req.user.id]?.bal?.usd?.reserved;
-            if(!reservedBal){
+            const livePriceData = livePrices.get(symbol);
+            const livePrice = livePriceData.sellPrice;
+            const iniReqAmt = (qty * livePrice) + margin
+            console.log('Live sell price of ', symbol, ' is : ', livePrice);
+            const reservedBal = activeUsers[req.user.id]?.bal?.usd?.reserved;
+            if (!reservedBal) {
                 return res.status(404).json(
-                    new ApiResponse(false,"No reserved balance foud for this user")
-                )   
-            } else if(reservedBal<iniReqAmt){
+                    new ApiResponse(false, "No reserved balance foud for this user")
+                )
+            } else if (reservedBal < iniReqAmt) {
                 return res.status(400).json(
-                   new ApiResponse(false,`Insufficient balance, Current balance : ${reservedBal}, & maring+minAmt required : ${iniReqAmt}`)
+                    new ApiResponse(false, `Insufficient balance, Current balance : ${reservedBal}, & maring+minAmt required : ${iniReqAmt}`)
                 )
             }
 
-            let stopPrice=(margin/qty)+livePrice
-            console.log('stopPrice : ',stopPrice);
+            let stopPrice = (margin / qty) + livePrice
+            console.log('stopPrice : ', stopPrice);
             // stopPrice=stopPrice-(stopPrice*0.01)
             // console.log('final stopPrice after decreasing 1% : ',stopPrice);
             const reserved = activeUsers[req.user.id].bal.usd.reserved;
-            activeUsers[req.user.id].bal.usd.reserved=reserved-iniReqAmt;
-            console.log(`reserved amount of user decreased from ${reserved} to ${reserved-iniReqAmt}`);
-            
-            const newOrder={
-                orderId:uuidv4(),
-                owner:req.user.id,
+            activeUsers[req.user.id].bal.usd.reserved = reserved - iniReqAmt;
+            console.log(`reserved amount of user decreased from ${reserved} to ${reserved - iniReqAmt}`);
+
+            const newOrder = {
+                orderId: uuidv4(),
+                owner: req.user.id,
                 qty,
-                price:livePrice,
-                action:"SELL",
+                price: livePrice,
+                action: "SELL",
                 stopPrice,
                 margin,
                 iniReqAmt
             }
 
-            console.log('newOrder : ',newOrder);
-            if(!activeUsers[req.user.id].activeSellOrders){
-                activeUsers[req.user.id].activeSellOrders=[newOrder]
-            }else{
+            console.log('newOrder : ', newOrder);
+            if (!activeUsers[req.user.id].activeSellOrders) {
+                activeUsers[req.user.id].activeSellOrders = [newOrder]
+            } else {
                 activeUsers[req.user.id].activeSellOrders.push(newOrder)
             }
 
-            console.log('Pushed new order into Priority queue of ',symbol);
-            
+            console.log('Pushed new order into Priority queue of ', symbol);
+
             sellPQS[symbol].push(newOrder)
-            console.log('PQ of ',symbol,' : ',sellPQS[symbol]);
-            
+            console.log('PQ of ', symbol, ' : ', sellPQS[symbol]);
+
             return res.status(200).json(
-                new ApiResponse(true,"Sell order started successfully")
+                new ApiResponse(true, "Sell order started successfully")
             )
         } else {
             return res.status(400).json(
-                new ApiResponse(false,"Invalid action type specified")
+                new ApiResponse(false, "Invalid action type specified")
             )
         }
     } catch (error) {
-        console.log('ERROR :: openOrder : ',error);
-        
+        console.log('ERROR :: openOrder : ', error);
+
         return res.status(500).json(
-            new ApiResponse(false,"Failed to start new order",null,error)
-        )        
+            new ApiResponse(false, "Failed to start new order", null, error)
+        )
     }
 }
 
@@ -242,93 +242,115 @@ export async function openOrder(req:ExpressRequest,res:Response){
  * 8.return response
  */
 
-export async function closeOrder(req:ExpressRequest,res:Response){
+export async function closeOrder(req: ExpressRequest, res: Response) {
+    //orderId action,
+    const {orderId,action}=req.query
+    const userId=req.user.id
+
+    const order ={
+        orderId,
+        action,
+        type:'NORMAL',
+        request:"CLOSE",
+        owner:userId
+    }
+
+    await redisQueue.lPush("orders",JSON.stringify(order))
+
+    console.log(`pushed ordet to "orders" redis queue`);
+    console.log('order : ',order);
+    
+    return res.status(200).json(
+        new ApiResponse(true,`Order received received,...processing`,{
+            orderId:order.orderId
+        })
+    )
     try {
-        const {orderId,action}=req.query;
+        const { orderId, action } = req.query;
         const userId = req.user.id;
-        if(!orderId || !action){
+        if (!orderId || !action) {
             return res.status(400).json(
-                new ApiResponse(false,"orderId or action is not specified")
+                new ApiResponse(false, "orderId or action is not specified")
             )
         }
-        
-        if(action=='SELL'){
-            const activeBuyOrders=activeUsers[userId].activeBuyOrders
-            const index = activeBuyOrders.findIndex((order:any)=>order.orderId==orderId);
-            if(index==-1){
+
+        if (action == 'SELL') {
+            const activeBuyOrders = activeUsers[userId].activeBuyOrders
+            const index = activeBuyOrders.findIndex((order: any) => order.orderId == orderId);
+            if (index == -1) {
                 return res.status(404).json(
-                    new ApiResponse(false,"Order not active anymore,order might have hit the stoplos")
+                    new ApiResponse(false, "Order not active anymore,order might have hit the stoplos")
                 )
             }
             const order = activeBuyOrders[index]
             const liveData = livePrices.get(order.symbol)
-            if(!liveData){
+            if (!liveData) {
                 return res.status(404).json(
-                    new ApiResponse(false,"Live price not found for the symbol : ",order.symbol)
+                    new ApiResponse(false, "Live price not found for the symbol : ", order.symbol)
                 )
             }
-            const liveSellPrice=liveData.sellPrice;
-            const sellAmt = order.qty*liveSellPrice
-            const reserved=activeUsers[userId]?.bal?.usd?.reserved
-            if(reserved || reserved==0){
-                activeUsers[userId].bal.usd.reserved=reserved+sellAmt
-                console.log('Price of user -',activeUsers[userId].userData?.username,' increased from ',reserved,' to ',(reserved+sellAmt));
-                activeBuyOrders.slice(index,1)
+            const liveSellPrice = liveData.sellPrice;
+            const sellAmt = order.qty * liveSellPrice
+            const reserved = activeUsers[userId]?.bal?.usd?.reserved
+            if (reserved || reserved == 0) {
+                activeUsers[userId].bal.usd.reserved = reserved + sellAmt
+                console.log('Price of user -', activeUsers[userId].userData?.username, ' increased from ', reserved, ' to ', (reserved + sellAmt));
+                activeBuyOrders.slice(index, 1)
             } else {
                 return res.status(404).json(
-                    new ApiResponse(false,`Wallet not found for user : ${req.user.username}`)
+                    new ApiResponse(false, `Wallet not found for user : ${req.user.username}`)
                 )
             }
             return res.status(200).json(
-                new ApiResponse(true,"Order closed successfully")
+                new ApiResponse(true, "Order closed successfully")
             )
-        } else if(action=='BUY'){
-            
-            const activeSellOrders=activeUsers[userId]?.activeSellOrders
-            if(!activeSellOrders){
-                return res.status(400).json(
-                    new ApiResponse(false,`No active sell orders for the user : ${req.user.username}`)
-                )
-            }
-            const index = activeSellOrders.findIndex((order:any)=>order.orderId==orderId)
-            if(index==-1){
-                return res.status(400).json(
-                    new ApiResponse(false,'Order not active,order might have already hit the stopPrice based on margin given')
-                )
-            }
-            const order =activeSellOrders[index]
-            const liveData=livePrices.get(order.symbol)
-            if(!liveData){
-                return res.status(404).json(
-                    new ApiResponse(false,`Live price not found for symbol ${order.symbol}`)
-                )
-            }
-            const liveBuyPrice=liveData.buyPrice
-            const buyAmt = order.qty*liveBuyPrice;
-            const sellAmt = order.qty*order.price
-            order.iniReqAmt-=buyAmt
+        } else if (action == 'BUY') {
 
-            const reserved=activeUsers[userId]?.bal?.usd?.reserved
-            if(!reserved && reserved!=0){
-                return res.status(404).json(
-                    new ApiResponse(false,`Reserved amt not fou for user : ${req.user.username}`)
+            const activeSellOrders = activeUsers[userId]?.activeSellOrders
+            if (!activeSellOrders) {
+                return res.status(400).json(
+                    new ApiResponse(false, `No active sell orders for the user : ${req.user.username}`)
                 )
-            
-            } 
-            activeUsers[userId].bal.usd.reserved=reserved+order.iniReqAmt+sellAmt
-            console.log(`Reserved amt of user : ${req.user.username} increased from ${reserved} to ${reserved+order.iniReqAmt+sellAmt}`);
-        
-            order.buyPrice=liveBuyPrice
+            }
+            const index = activeSellOrders.findIndex((order: any) => order.orderId == orderId)
+            if (index == -1) {
+                return res.status(400).json(
+                    new ApiResponse(false, 'Order not active,order might have already hit the stopPrice based on margin given')
+                )
+            }
+            const order = activeSellOrders[index]
+            const liveData = livePrices.get(order.symbol)
+            if (!liveData) {
+                return res.status(404).json(
+                    new ApiResponse(false, `Live price not found for symbol ${order.symbol}`)
+                )
+            }
+            const liveBuyPrice = liveData.buyPrice
+            const buyAmt = order.qty * liveBuyPrice;
+            const sellAmt = order.qty * order.price
+            order.iniReqAmt -= buyAmt
+
+            const reserved = activeUsers[userId]?.bal?.usd?.reserved
+            if (!reserved && reserved != 0) {
+                return res.status(404).json(
+                    new ApiResponse(false, `Reserved amt not fou for user : ${req.user.username}`)
+                )
+
+            }
+            activeUsers[userId].bal.usd.reserved = reserved + order.iniReqAmt + sellAmt
+            console.log(`Reserved amt of user : ${req.user.username} increased from ${reserved} to ${reserved + order.iniReqAmt + sellAmt}`);
+
+            order.buyPrice = liveBuyPrice
             completedSellOrders.push(order)
-            activeSellOrders.splice(index,1)
+            activeSellOrders.splice(index, 1)
             return res.status(200).json(
-                new ApiResponse(true,`Sell order closed successfully`)
+                new ApiResponse(true, `Sell order closed successfully`)
             )
         }
 
     } catch (error) {
         return res.status(500).json(
-            new ApiResponse(false,`Failed to close the order`)
+            new ApiResponse(false, `Failed to close the order`)
         )
     }
 }
@@ -364,188 +386,213 @@ export async function closeOrder(req:ExpressRequest,res:Response){
  * 11.return response
  */
 
-export async function openLeverageOrder(req:ExpressRequest,res:Response){
+export async function openLeverageOrder(req: ExpressRequest, res: Response) {
     try {
-        const {action} = req.query;
-        const userId=req.user.id
+        const { symbol, action, qty, stoploss, margin, stopPrice } = req.query;
+        const userId = req.user.id
 
-        if(action=='BUY'){
-            const {symbol,qty:qtyStr,stoploss:stoplossStr,margin:marginStr}=req.query;
-            if(!leverageBuyPQS[symbol]){
-                leverageBuyPQS[symbol]=new Heap((order1,order2)=>order2.stoploss-order1.stoploss)
+        const order = {
+            orderId: uuidv4(),
+            action,
+            symbol,
+            qty,
+            stoploss,
+            margin,
+            type: 'LEVERAGE',
+            request: "OPEN",
+            owner: userId,
+            stopPrice
+        }
+
+        await redisQueue.lPush("orders", JSON.stringify(order))
+
+        console.log(`pushed ordet to "orders" redis queue`);
+        console.log('order : ', order);
+
+        return res.status(200).json(
+            new ApiResponse(true, `Order received received,...processing`, {
+                orderId: order.orderId
+            })
+        )
+
+        //symbol,qty,stoploss,margin,stopPrice
+        if (action == 'BUY') {
+            const { symbol, qty: qtyStr, stoploss: stoplossStr, margin: marginStr } = req.query;
+            if (!leverageBuyPQS[symbol]) {
+                leverageBuyPQS[symbol] = new Heap((order1, order2) => order2.stoploss - order1.stoploss)
             }
-            const stoploss=Number(stoplossStr)
-            const qty=Number(qtyStr)
-            const margin=Number(marginStr)
+            const stoploss = Number(stoplossStr)
+            const qty = Number(qtyStr)
+            const margin = Number(marginStr)
             const userId = req.user.id;
-            if(!userId){
+            if (!userId) {
                 return res.status(400).json(
-                    new ApiResponse(false,"userId not found, unauthorized")
+                    new ApiResponse(false, "userId not found, unauthorized")
                 )
-            } else if(!symbol || !qty ){
+            } else if (!symbol || !qty) {
                 console.log(`Symbol or qty not provided in the request`);
                 return res.status(400).json(
-                    new ApiResponse(false,"symbol or quantity not provided in the request")
+                    new ApiResponse(false, "symbol or quantity not provided in the request")
                 )
             }
 
-            const liveData=livePrices.get(symbol)
-            if(!liveData){
+            const liveData = livePrices.get(symbol)
+            if (!liveData) {
                 return res.status(404).json(
-                    new ApiResponse(false,`Live data not foud for symbol : ${symbol}`)
+                    new ApiResponse(false, `Live data not foud for symbol : ${symbol}`)
                 )
             }
 
-            const {buyPrice:liveBuyPrice,sellPrice:liveSellPrice} = liveData
+            const { buyPrice: liveBuyPrice, sellPrice: liveSellPrice } = liveData
 
             const buyAmt = qty * liveBuyPrice
-            const leverageScale = buyAmt/margin
-            if(leverageScale>maxLeverageScale){
+            const leverageScale = buyAmt / margin
+            if (leverageScale > maxLeverageScale) {
                 return res.status(400).json(
-                    new ApiResponse(false,`This platform only supports upto ${maxLeverageScale}X leverage,reduce qty or increase margin`)
+                    new ApiResponse(false, `This platform only supports upto ${maxLeverageScale}X leverage,reduce qty or increase margin`)
                 )
             }
 
             const reserved = activeUsers[userId]?.bal?.usd?.reserved
-            if(!reserved){
+            if (!reserved) {
                 return res.status(400).json(
-                    new ApiResponse(false,`Reserved amout not foud for the user : ${req.user.username}`)
+                    new ApiResponse(false, `Reserved amout not foud for the user : ${req.user.username}`)
                 )
             }
 
-            if(reserved<margin){
+            if (reserved < margin) {
                 return res.status(400).json(
-                    new ApiResponse(false,`Insufficient marin amount, current tradable balance : ${reserved}`)
+                    new ApiResponse(false, `Insufficient marin amount, current tradable balance : ${reserved}`)
                 )
             }
 
-            activeUsers[userId].bal.usd.reserved=reserved-margin
+            activeUsers[userId].bal.usd.reserved = reserved - margin
 
-            const stoplossBE=liveSellPrice-(margin/qty)
+            const stoplossBE = liveSellPrice - (margin / qty)
             let finalStoploss;
-            
-            if(stoploss){
-                if(stoploss<stoplossBE){
+
+            if (stoploss) {
+                if (stoploss < stoplossBE) {
                     return res.status(400).json(
-                        new ApiResponse(false,"Stoploss given by you excceed the margin coverage limit,decrease stoploss or increase margin")
+                        new ApiResponse(false, "Stoploss given by you excceed the margin coverage limit,decrease stoploss or increase margin")
                     )
                 } else {
-                    finalStoploss=stoploss
+                    finalStoploss = stoploss
                 }
             } else {
-                finalStoploss=stoplossBE
+                finalStoploss = stoplossBE
             }
 
-            const order ={
-                orderId:uuidv4(),
-                action:"BUY",
+            const order = {
+                orderId: uuidv4(),
+                action: "BUY",
                 qty,
                 symbol,
-                price:liveBuyPrice,
+                price: liveBuyPrice,
                 margin,
-                stoploss:finalStoploss,
-                owner:userId
+                stoploss: finalStoploss,
+                owner: userId
             }
 
             leverageBuyPQS[symbol].push(order)
-            if(!activeUsers[userId].activeLeverageBuyOrders){
-                activeUsers[userId].activeLeverageBuyOrders=[order]
+            if (!activeUsers[userId].activeLeverageBuyOrders) {
+                activeUsers[userId].activeLeverageBuyOrders = [order]
             } else {
                 activeUsers[userId].activeLeverageBuyOrders.psuh(order)
             }
 
 
             return res.status(201).json(
-                new ApiResponse(true,`Leverage buy order placed successfully`)
+                new ApiResponse(true, `Leverage buy order placed successfully`)
             )
-        } else if(action=='SELL'){
-            const {symbol,qty:qtyStr,margin:marginStr,stopPrice:stopPriceStr}=req.query
-            const margin=Number(marginStr)
+        } else if (action == 'SELL') {
+            const { symbol, qty: qtyStr, margin: marginStr, stopPrice: stopPriceStr } = req.query
+            const margin = Number(marginStr)
             const stopPrice = Number(stopPriceStr)
-            const qty=Number(qtyStr)
-            if(margin==0){
+            const qty = Number(qtyStr)
+            if (margin == 0) {
                 return res.status(400).json(
-                    new ApiResponse(false,`Margin cannot be 0`)
+                    new ApiResponse(false, `Margin cannot be 0`)
                 )
-            }else if(!margin || !qty || !symbol){
+            } else if (!margin || !qty || !symbol) {
                 return res.status(400).json(
-                    new ApiResponse(false,`Invalid data provided,margin quantity and symbol in required`)
+                    new ApiResponse(false, `Invalid data provided,margin quantity and symbol in required`)
                 )
             }
 
-            const liveData=livePrices.get(symbol)
-            if(!liveData){
+            const liveData = livePrices.get(symbol)
+            if (!liveData) {
                 return res.status(404).json(
-                    new ApiResponse(false,`Liev data not foud for symbol : ${symbol}`)
+                    new ApiResponse(false, `Liev data not foud for symbol : ${symbol}`)
                 )
             }
-            if(!leverageSellPQS[symbol]){
-                leverageBuyPQS[symbol]=new Heap((order1:any,order2:any)=>order1.stopPrice-order2.stopPrice)
+            if (!leverageSellPQS[symbol]) {
+                leverageBuyPQS[symbol] = new Heap((order1: any, order2: any) => order1.stopPrice - order2.stopPrice)
             }
-            const{ buyPrice:liveBuyPrice,sellPrice:liveSellPrice}=liveData
+            const { buyPrice: liveBuyPrice, sellPrice: liveSellPrice } = liveData
 
-            const borrowedAmt = qty*liveBuyPrice
-            const reserved=activeUsers[userId]?.bal?.usd?.reserved
-            if(!reserved){
+            const borrowedAmt = qty * liveBuyPrice
+            const reserved = activeUsers[userId]?.bal?.usd?.reserved
+            if (!reserved) {
                 return res.status(500).json(
-                    new ApiResponse(false,`Reserved balance not found for user : ${req.user.username}`)
+                    new ApiResponse(false, `Reserved balance not found for user : ${req.user.username}`)
                 )
-            } else if(reserved<margin){
+            } else if (reserved < margin) {
                 return res.status(400).json(
-                    new ApiResponse(false,`Insufficient balance, current balance : ${reserved}`)
+                    new ApiResponse(false, `Insufficient balance, current balance : ${reserved}`)
                 )
             }
 
-            const leverageScale = borrowedAmt/margin
-            if(leverageScale>maxLeverageScale){
+            const leverageScale = borrowedAmt / margin
+            if (leverageScale > maxLeverageScale) {
                 return res.status(400).json(
-                    new ApiResponse(false,`This platform supports maximum upto 10x leverage,increase margin or decrease quantity`)
+                    new ApiResponse(false, `This platform supports maximum upto 10x leverage,increase margin or decrease quantity`)
                 )
             }
-            const stopPriceBE = liveBuyPrice+(margin/qty)
-            let finalStopPrice=stopPriceBE
-            if(stopPrice){
-                if(stopPrice>stopPriceBE){
+            const stopPriceBE = liveBuyPrice + (margin / qty)
+            let finalStopPrice = stopPriceBE
+            if (stopPrice) {
+                if (stopPrice > stopPriceBE) {
                     return res.status(400).json(
-                       new ApiResponse(false,`Stopprice exceeds the max stopPrice based on allocated margin,increase margin or decrease stoploss`)
+                        new ApiResponse(false, `Stopprice exceeds the max stopPrice based on allocated margin,increase margin or decrease stoploss`)
                     )
                 } else {
-                    finalStopPrice=stopPrice
+                    finalStopPrice = stopPrice
                 }
             }
-            activeUsers[userId].bal.usd.reserved=reserved-margin
-            const orderId=uuidv4()
+            activeUsers[userId].bal.usd.reserved = reserved - margin
+            const orderId = uuidv4()
             console.log(`Borrowed : ${borrowedAmt} from exness for orderId : ${orderId}`);
-            const order ={
+            const order = {
                 orderId,
-                owner:userId,
+                owner: userId,
                 qty,
-                price:liveSellPrice,
+                price: liveSellPrice,
                 margin,
-                leverage:borrowedAmt,
-                stopPrice:finalStopPrice,
-                action:'SELL'
+                leverage: borrowedAmt,
+                stopPrice: finalStopPrice,
+                action: 'SELL'
             }
 
             leverageSellPQS[symbol].push(order)
-            if(!activeUsers[userId].activeLeverageSellOrders){
-                activeUsers[userId].activeLeverageSellOrders=[order]
+            if (!activeUsers[userId].activeLeverageSellOrders) {
+                activeUsers[userId].activeLeverageSellOrders = [order]
             } else {
                 activeUsers[userId].activeLeverageSellOrders.push(order)
             }
 
             return res.status(201).json(
-                new ApiResponse(true,`Leverage sell order started successfully`)
+                new ApiResponse(true, `Leverage sell order started successfully`)
             )
 
-        }else {
+        } else {
             return res.status(400).json(
-                new ApiResponse(false,`Invalid action type specified`)
+                new ApiResponse(false, `Invalid action type specified`)
             )
         }
     } catch (error) {
         return res.status(500).json(
-            new ApiResponse(false,`Failed to place leverage buy order`)
+            new ApiResponse(false, `Failed to place leverage buy order`)
         )
     }
 }
@@ -580,116 +627,137 @@ export async function openLeverageOrder(req:ExpressRequest,res:Response){
  * 12.push the order into compltedLeverageSellOrders
  * 13.return response
  */
-export async function closeLeverageOrder(req:ExpressRequest,res:Response){
+export async function closeLeverageOrder(req: ExpressRequest, res: Response) {
+    //action,orderId
+    const {action,orderId}=req.query
+    const userId=req.user.id
+    const order ={
+        orderId,
+        action,
+        type:'NORMAL',
+        request:"CLOSE",
+        owner:userId
+    }
+
+    await redisQueue.lPush("orders",JSON.stringify(order))
+
+    console.log(`pushed ordet to "orders" redis queue`);
+    console.log('order : ',order);
+    
+    return res.status(200).json(
+        new ApiResponse(true,`Order received received,...processing`,{
+            orderId:order.orderId
+        })
+    )
     try {
-        const {action,orderId}=req.query;
-        if(orderId){
+        const { action, orderId } = req.query;
+        if (orderId) {
             return res.status(400).json(
-                new ApiResponse(false,`Order id not found inside query`)
+                new ApiResponse(false, `Order id not found inside query`)
             )
         }
-        const userId=req.user.id;
-        if(action=='BUY'){
-            const activeLeverageSellOrders=activeUsers[userId]?.activeLeverageSellOrders
-            if(!activeLeverageSellOrders){
+        const userId = req.user.id;
+        if (action == 'BUY') {
+            const activeLeverageSellOrders = activeUsers[userId]?.activeLeverageSellOrders
+            if (!activeLeverageSellOrders) {
                 return res.status(404).json(
-                    new ApiResponse(false,`No active leverage sell orders found,order is already closed manually or automatically closed due to stopPrice hit`)
+                    new ApiResponse(false, `No active leverage sell orders found,order is already closed manually or automatically closed due to stopPrice hit`)
                 )
             }
-            const index = activeLeverageSellOrders.findIndex((order:any)=>order.orderId==orderId)
-            if(index==-1){
+            const index = activeLeverageSellOrders.findIndex((order: any) => order.orderId == orderId)
+            if (index == -1) {
                 return res.status(404).json(
-                    new ApiResponse(false,`Order not found,order is already closed manually or automatically closed due to stopPrice hit or invalid order Id`)
+                    new ApiResponse(false, `Order not found,order is already closed manually or automatically closed due to stopPrice hit or invalid order Id`)
                 )
             }
             const order = activeLeverageSellOrders[index]
-            const reservedBuyAmt=order.leverage + order.margin
-            const liveData=livePrices.get(order.symbol)
-            if(!liveData){
+            const reservedBuyAmt = order.leverage + order.margin
+            const liveData = livePrices.get(order.symbol)
+            if (!liveData) {
                 return res.status(500).json(
-                    new ApiResponse(false,`Live data not found for symbol : ${order.symbol}`)
+                    new ApiResponse(false, `Live data not found for symbol : ${order.symbol}`)
                 )
             }
-            const {buyPrice:liveBuyPrice}=liveData
+            const { buyPrice: liveBuyPrice } = liveData
             const buyAmt = order.qty * liveBuyPrice
-            const remainningReservedBuyAmt=reservedBuyAmt-buyAmt
+            const remainningReservedBuyAmt = reservedBuyAmt - buyAmt
             const sellAmt = order.qty * order.price
 
-            const netSellAmt=sellAmt+remainningReservedBuyAmt
-            const netUserProfit=netSellAmt-order.leverage
+            const netSellAmt = sellAmt + remainningReservedBuyAmt
+            const netUserProfit = netSellAmt - order.leverage
             console.log(`Returned the amout borrowed from exness : ${order.leverage}`);
             const reserved = activeUsers[userId]?.bal?.usd?.reserved
-            
-            if(!reserved && reserved!=0){
+
+            if (!reserved && reserved != 0) {
                 return res.status(400).json(
-                    new ApiResponse(false,`Reserved amout not found for user : ${req.user.username}`)
+                    new ApiResponse(false, `Reserved amout not found for user : ${req.user.username}`)
                 )
             }
-            
+
             activeUsers[userId].bal.usd.reserved = reserved + netUserProfit
-            console.log(`Reserved amout of user : ${req.user.username} increased from ${reserved} to ${reserved+netUserProfit}`);
-            
-            order.buyPrice=liveBuyPrice
-            activeLeverageSellOrders.splice(index,1)
+            console.log(`Reserved amout of user : ${req.user.username} increased from ${reserved} to ${reserved + netUserProfit}`);
+
+            order.buyPrice = liveBuyPrice
+            activeLeverageSellOrders.splice(index, 1)
             completedLeverageSellOrders.push(order)
             return res.status(200).json(
-                new ApiResponse(true,`Leverage sell order closed successfully`)
+                new ApiResponse(true, `Leverage sell order closed successfully`)
             )
-            
-        }else if(action=='SELL'){
+
+        } else if (action == 'SELL') {
             const activeLeverageBuyOrders = activeUsers[userId]?.activeLeverageBuyOrders
 
-            const index = activeLeverageBuyOrders.findIndex((order:any)=>order.orderId==orderId)
-            if(index==-1){
+            const index = activeLeverageBuyOrders.findIndex((order: any) => order.orderId == orderId)
+            if (index == -1) {
                 return res.status(400).json(
-                    new ApiResponse(false,`This buy order is already closed by you or cloed automatically because of stoploss`)
+                    new ApiResponse(false, `This buy order is already closed by you or cloed automatically because of stoploss`)
                 )
             }
-            const order =activeLeverageBuyOrders[index]
+            const order = activeLeverageBuyOrders[index]
 
-            const liveData=livePrices.get(order.symbol)
-            if(!liveData){
+            const liveData = livePrices.get(order.symbol)
+            if (!liveData) {
                 return res.status(500).json(
-                    new ApiResponse(false,`live data not foud for the symbol : ${order.symbol}`)
+                    new ApiResponse(false, `live data not foud for the symbol : ${order.symbol}`)
                 )
             }
-            const liveSellPrice=liveData.sellPrice
+            const liveSellPrice = liveData.sellPrice
             const sellAmt = liveSellPrice * order.qty
             const buyAmt = order.qty * order.price
 
-            const borrowedAmt = buyAmt-order.margin
-            const userProfit = sellAmt-borrowedAmt
+            const borrowedAmt = buyAmt - order.margin
+            const userProfit = sellAmt - borrowedAmt
 
             console.log(`Returning borrowed amt from exness : ${borrowedAmt}`);
             console.log(`userprofit from this leverage buy order : ${userProfit}`);
 
-            order.sellPrice=liveSellPrice
+            order.sellPrice = liveSellPrice
             const reserved = activeUsers[userId]?.bal?.usd?.reserved
 
-            if(!reserved && reserved!=0){
+            if (!reserved && reserved != 0) {
                 console.log(`Reserved var not fou for user : ${activeUsers[userId]?.userData?.username}`);
                 return res.status(404).json(
-                    new ApiResponse(false,`Reserved varibale not found for the user : ${activeUsers[userId]?.userData.username}`)
+                    new ApiResponse(false, `Reserved varibale not found for the user : ${activeUsers[userId]?.userData.username}`)
                 )
             }
-            
-            activeUsers[userId].bal.usd.reserved=reserved+userProfit
-            console.log(`balance of user ${req.user.username} increased from ${reserved} to ${reserved+userProfit}`);
-            activeLeverageBuyOrders.splice(index,1)
+
+            activeUsers[userId].bal.usd.reserved = reserved + userProfit
+            console.log(`balance of user ${req.user.username} increased from ${reserved} to ${reserved + userProfit}`);
+            activeLeverageBuyOrders.splice(index, 1)
 
             completedLeverageBuyOrders.push(order)
 
             return res.status(200).json(
-                new ApiResponse(true,`Leverage buy order closed successfully`)
+                new ApiResponse(true, `Leverage buy order closed successfully`)
             )
-        }else {
+        } else {
             return res.status(400).json(
-                new ApiResponse(false,`Invalid action type specified`)
+                new ApiResponse(false, `Invalid action type specified`)
             )
         }
     } catch (error) {
         return res.status(500).json(
-            new ApiResponse(false,`Failed to close the leverage order`)
+            new ApiResponse(false, `Failed to close the leverage order`)
         )
     }
 }
