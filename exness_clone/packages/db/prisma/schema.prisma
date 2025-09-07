@@ -17,15 +17,41 @@ model binance_mark_prices {
   @@index([time(sort: Desc)])
 }
 
-model user{
+model User{
   id String @id @default(uuid())
   username String @unique
   email String @unique
   password String
   phone String?
+
+  bal Decimal @default(5000000000)
+  decimals Int @default(6)
+  
+  myorders Order[]
 }
 
-//Uncomment them and run npx prisma genearate if you want to prisma functionality on materialized views (candles_1m,candles_5m,candles_1h)
+model Order {
+  orderId String @id
+  action String
+  type String       //
+  symbol String
+  owner User @relation(fields: [ownerId],references: [id])
+  ownerId String
+  qty Float
+  price Float
+
+  margin Float?
+  leverage Float?
+  stoploss Float?
+  stopPrice Float?
+  buyPrice Float?
+  sellPrice Float?
+  pnl Float?
+  
+  createdAt DateTime @default(now())
+}
+
+//Uncomment lines below and run npx prisma genearate if you want to prisma functionality on materialized views (candles_1m,candles_5m,candles_1h)
 //instead of $executeRawUnsafe or $queryRawUnsafe
 //DO NOT RUN npx prisma migrate after uncommenting these lines below these only for generating client and using in code with less friction
 

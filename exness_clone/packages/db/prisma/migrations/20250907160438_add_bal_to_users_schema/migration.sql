@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "public"."user" ADD COLUMN     "bal" BIGINT NOT NULL DEFAULT 5000000000,
+ADD COLUMN     "decimals" INTEGER NOT NULL DEFAULT 6;

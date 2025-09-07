@@ -18,7 +18,7 @@ export function updateRediSubscriber(subscriber: any) {
     redisSubscriber = subscriber
 }
 
-export let offset = 0;
+export let offset = -1;
 
 export function setOffset(newOffset: any) {
     offset = newOffset

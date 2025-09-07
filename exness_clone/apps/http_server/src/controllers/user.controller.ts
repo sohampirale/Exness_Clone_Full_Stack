@@ -98,7 +98,7 @@ export async function userSignin(req: Request, res: Response) {
         
         const bal={
             usd:{
-                reserved:5000
+                reserved:(user.bal/1000000)
             }
         }
 
