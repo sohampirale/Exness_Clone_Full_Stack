@@ -1,5 +1,5 @@
 import Heap from "heap-js";
-import { activeUsers, buyPQS, completedLeverageBuyOrders, completedLeverageSellOrders, completedSellOrders, leverageBuyPQS, leverageSellPQS, livePrices, maxLeverageScale, NOTIFICATION_BODY, NOTIFICATION_MESSAGE, NOTIFICATION_SUBJECT, sellPQS } from "../variables";
+import { activeUsers, buyPQS, completedLeverageBuyOrders, completedLeverageSellOrders, completedSellOrders, leverageBuyPQS, leverageSellPQS, livePrices, maxLeverageScale, NOTIFICATION_BODY, NOTIFICATION_MESSAGE, NOTIFICATION_SUBJECT, offset, sellPQS, setOffset } from "../variables";
 import { v4 as uuidv4 } from "uuid"
 import { redisPublisher } from "..";
 
@@ -25,14 +25,15 @@ import { redisPublisher } from "..";
  * 9.Return response
  */
 
-export async function openOrder(order: any) {
+export async function openOrder(requestedOrder: any) {
 
-    const { action, owner, orderId } = order
-
+    const { action, owner, orderId } = requestedOrder
+    console.log('inside openOrder handler requestedOrder : ',requestedOrder);
+    
     try {
 
         if (action == 'BUY') {
-            const { symbol, qty: qtyStr, stoploss: stoplossStr } = order;
+            const { symbol, qty: qtyStr, stoploss: stoplossStr } = requestedOrder;
 
             if (!buyPQS[symbol]) {
                 buyPQS[symbol] = new Heap((order1: any, order2: any) => order2.stoploss - order1.stoploss)
@@ -125,7 +126,7 @@ export async function openOrder(order: any) {
                     ...update,
                     email: activeUsers[owner]?.userData?.email,
                     subject: `Exness clone : order notification`,
-                    body: NOTIFICATION_BODY.INSUFFICIENT_BALANCE(activeUsers[owner]?.userData?.username, update.message, order)
+                    body: NOTIFICATION_BODY.INSUFFICIENT_BALANCE(activeUsers[owner]?.userData?.username, update.message, requestedOrder)
                 }
 
                 const updateSMS = {
@@ -148,14 +149,17 @@ export async function openOrder(order: any) {
 
 
             const newOrder = {
+                offset:'my offset',
                 orderId,
                 action: 'BUY',
                 symbol,
                 price: liveBuyPrice,
                 qty,
                 stoploss,
-                owner: owner
+                owner: owner,
             }
+
+
 
 
             if (!activeUsers[owner].activeBuyOrders) {
@@ -179,14 +183,18 @@ export async function openOrder(order: any) {
             }
 
             const { bal, activeBuyOrders, activeSellOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
+            setOffset(offset+1)
+
             const ordersLogObj = {
-                orderId,
+                orderId:orderId,
                 owner,
                 bal,
                 activeBuyOrders,
                 activeSellOrders,
                 activeLeverageBuyOrders,
-                activeLeverageSellOrders
+                activeLeverageSellOrders,
+                offset:offset,
+
             }
 
             const update = {
@@ -199,7 +207,7 @@ export async function openOrder(order: any) {
                 ...update,
                 email: activeUsers[owner]?.userData?.email,
                 subject: NOTIFICATION_SUBJECT.SUCCESS_OPEN_ORDER,
-                body: NOTIFICATION_BODY.SUCCESS_OPEN_ORDER(activeUsers[owner]?.userData?.username, update.message, order)
+                body: NOTIFICATION_BODY.SUCCESS_OPEN_ORDER(activeUsers[owner]?.userData?.username, update.message, requestedOrder)
             }
 
             const updateSms = {
@@ -208,7 +216,7 @@ export async function openOrder(order: any) {
                 phone: activeUsers[owner]?.userData?.phone
             }
 
-            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.rPush("orders:log", JSON.stringify(ordersLogObj))
             await redisPublisher.publish("orders_executed", JSON.stringify(update))
             await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
             await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
@@ -223,7 +231,7 @@ export async function openOrder(order: any) {
 
 
         } else if (action == 'SELL') {
-            const { symbol, qty: qtyStr, margin: marginStr } = order;
+            const { symbol, qty: qtyStr, margin: marginStr } = requestedOrder;
 
             if (!sellPQS[symbol]) {
                 sellPQS[symbol] = new Heap((order1: any, order2: any) => order1.stopPrice - order2.stopPrice)
@@ -279,7 +287,7 @@ export async function openOrder(order: any) {
                     ...update,
                     email: activeUsers[owner]?.userData?.email,
                     subject: NOTIFICATION_SUBJECT.INSUFFICIENT_BALANCE,
-                    body: NOTIFICATION_BODY.INSUFFICIENT_BALANCE(activeUsers[owner]?.userData?.username, update.message, order)
+                    body: NOTIFICATION_BODY.INSUFFICIENT_BALANCE(activeUsers[owner]?.userData?.username, update.message, requestedOrder)
                 }
 
                 const updateSms = {
@@ -306,15 +314,17 @@ export async function openOrder(order: any) {
             activeUsers[owner].bal.usd.reserved = reserved - iniReqAmt;
             console.log(`reserved amount of user decreased from ${reserved} to ${reserved - iniReqAmt}`);
 
+
             const newOrder = {
-                orderId: uuidv4(),
+                orderId,
                 owner: owner,
                 qty,
                 price: livePrice,
                 action: "SELL",
                 stopPrice,
                 margin,
-                iniReqAmt
+                iniReqAmt,
+                symbol,
             }
 
             console.log('newOrder : ', newOrder);
@@ -323,13 +333,15 @@ export async function openOrder(order: any) {
             } else {
                 activeUsers[owner].activeSellOrders.push(newOrder)
             }
+            console.log('pushed new normal sell order now activeSellOrders : ',activeUsers[owner].activeSellOrders);
 
             console.log('Pushed new order into Priority queue of ', symbol);
 
             sellPQS[symbol].push(newOrder)
-            console.log('PQ of ', symbol, ' : ', sellPQS[symbol]);
+            // console.log('PQ of ', symbol, ' : ', sellPQS[symbol]);
 
             const { bal, activeBuyOrders, activeSellOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
+            setOffset(offset+1)
 
             const ordersLogObj = {
                 orderId,
@@ -338,7 +350,8 @@ export async function openOrder(order: any) {
                 activeBuyOrders,
                 activeSellOrders,
                 activeLeverageBuyOrders,
-                activeLeverageSellOrders
+                activeLeverageSellOrders,
+                offset
             }
 
             const update = {
@@ -351,7 +364,7 @@ export async function openOrder(order: any) {
                 ...update,
                 email: activeUsers[owner]?.userData?.email,
                 subject: NOTIFICATION_SUBJECT.SUCCESS_OPEN_ORDER,
-                body: NOTIFICATION_BODY.SUCCESS_OPEN_ORDER(activeUsers[owner]?.userData?.username, update.message, order)
+                body: NOTIFICATION_BODY.SUCCESS_OPEN_ORDER(activeUsers[owner]?.userData?.username, update.message, requestedOrder)
             }
 
             const updateSms = {
@@ -360,7 +373,7 @@ export async function openOrder(order: any) {
                 phone: activeUsers[owner]?.userData?.phone
             }
 
-            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.rPush("orders:log", JSON.stringify(ordersLogObj))
             await redisPublisher.publish("orders_executed", JSON.stringify(update))
             await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
             await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
@@ -395,7 +408,7 @@ export async function openOrder(order: any) {
             message: NOTIFICATION_MESSAGE.ORDER_FAILED
         }
 
-        const { retryCnt } = order
+        const { retryCnt } = requestedOrder
 
         if (retryCnt == 0) {
             await redisPublisher.publish("orders_executed", JSON.stringify(update))
@@ -403,7 +416,7 @@ export async function openOrder(order: any) {
                 ...update,
                 email: activeUsers[owner]?.userData?.email,
                 subject: NOTIFICATION_SUBJECT.SUCCESS_OPEN_ORDER,
-                body: NOTIFICATION_BODY.ORDER_FAILED(activeUsers[owner]?.userData?.username, update.message, order)
+                body: NOTIFICATION_BODY.ORDER_FAILED(activeUsers[owner]?.userData?.username, update.message, requestedOrder)
             }
 
             const updateSms = {
@@ -418,13 +431,13 @@ export async function openOrder(order: any) {
 
             return;
         } else if (!retryCnt) {
-            order.retryCnt = 2;
+            requestedOrder.retryCnt = 2;
         } else {
-            order.retryCnt = order.retryCnt - 1;
+            requestedOrder.retryCnt = requestedOrder.retryCnt - 1;
         }
 
-        await redisPublisher.LPUSH("orders", JSON.stringify(order))
-        update.message += `,retrying agian for ${order.retryCnt} times`
+        await redisPublisher.LPUSH("orders", JSON.stringify(requestedOrder))
+        update.message += `,retrying agian for ${requestedOrder.retryCnt} times`
         await redisPublisher.publish("orders_executed", JSON.stringify(update))
         return;
         //TODO (also might want to execute this order again)
@@ -484,6 +497,7 @@ export async function closeOrder(requestedOrder: any) {
             const activeBuyOrders = activeUsers[userId].activeBuyOrders
             const index = activeBuyOrders.findIndex((order: any) => order.orderId == orderId);
             if (index == -1) {
+                
                 const update = {
                     orderId,
                     owner,
@@ -519,9 +533,11 @@ export async function closeOrder(requestedOrder: any) {
 
             const liveSellPrice = liveData.sellPrice;
             const sellAmt = order.qty * liveSellPrice
+            const buyAmt = order.qty*order.price
             const reserved = activeUsers[userId]?.bal?.usd?.reserved;
-
+            const pnl = buyAmt-sellAmt
             if (reserved || reserved == 0) {
+                
                 activeUsers[userId].bal.usd.reserved = reserved + sellAmt
                 console.log('Price of user -', activeUsers[userId].userData?.username, ' increased from ', reserved, ' to ', (reserved + sellAmt));
                 activeBuyOrders.slice(index, 1)
@@ -541,7 +557,26 @@ export async function closeOrder(requestedOrder: any) {
                 // )
             }
 
+            const dborder:any={}
+            dborder.orderId=order.orderId
+            dborder.action=order.action
+            dborder.type="NORMAL",
+            dborder.symbol=order.symbol
+            dborder.ownerId=order.owner
+            dborder.qty=order.qty;
+            dborder.buyPrice=order.price
+            dborder.price=order.price
+            dborder.stoploss=order.stoploss
+            dborder.sellPrice=liveSellPrice
+            dborder.pnl=pnl;
+            console.log('dborder : ',dborder);
+            
+            await redisPublisher.lPush("orders_completed",JSON.stringify(dborder))
+            console.log('dborder pushed onto redis queue');
+            
             const { bal, activeSellOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
+
+            setOffset(offset+1)
 
             const ordersLogObj = {
                 orderId,
@@ -550,7 +585,8 @@ export async function closeOrder(requestedOrder: any) {
                 activeBuyOrders,
                 activeSellOrders,
                 activeLeverageBuyOrders,
-                activeLeverageSellOrders
+                activeLeverageSellOrders,
+                offset
             }
 
             const update = {
@@ -572,7 +608,7 @@ export async function closeOrder(requestedOrder: any) {
                 phone: activeUsers[owner]?.userData?.phone
             }
 
-            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.rPush("orders:log", JSON.stringify(ordersLogObj))
             await redisPublisher.publish("orders_executed", JSON.stringify(update))
             await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
             await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
@@ -586,6 +622,8 @@ export async function closeOrder(requestedOrder: any) {
 
             const activeSellOrders = activeUsers[userId]?.activeSellOrders
             if (!activeSellOrders) {
+                console.log('autoLiquidated case!');
+
                 const update = {
                     orderId,
                     owner,
@@ -600,10 +638,24 @@ export async function closeOrder(requestedOrder: any) {
                 //     new ApiResponse(false,`No active sell orders for the user : ${req.user.username}`)
                 // )
             }
-
+            console.log('orderId : ',orderId);
+            
             const index = activeSellOrders.findIndex((order: any) => order.orderId == orderId)
+            console.log('activeSellOrders : ',activeSellOrders);
+            
             if (index == -1) {
-                //TODO
+                console.log('autoLiquidated case2!');
+
+                const update = {
+                    orderId,
+                    owner,
+                    message: NOTIFICATION_MESSAGE.AUTO_LIQUIDATED
+                }
+
+                await redisPublisher.publish("orders_executed", JSON.stringify(update))
+
+                return;
+                //
                 // return res.status(400).json(
                 //     new ApiResponse(false,'Order not active,order might have already hit the stopPrice based on margin given')
                 // )
@@ -629,6 +681,8 @@ export async function closeOrder(requestedOrder: any) {
             const liveBuyPrice = liveData.buyPrice
             const buyAmt = order.qty * liveBuyPrice;
             const sellAmt = order.qty * order.price
+            const pnl=sellAmt-buyAmt
+
             order.iniReqAmt -= buyAmt
 
             const reserved = activeUsers[userId]?.bal?.usd?.reserved
@@ -642,7 +696,7 @@ export async function closeOrder(requestedOrder: any) {
                 await redisPublisher.publish("orders_executed", JSON.stringify(update))
 
                 return;
-                //TODO
+                //
                 // return res.status(404).json(
                 //     new ApiResponse(false,`Reserved amt not found for user : ${req.user.username}`)
                 // )
@@ -655,8 +709,28 @@ export async function closeOrder(requestedOrder: any) {
             completedSellOrders.push(order)
             activeSellOrders.splice(index, 1)
 
+            const dborder:any={}
+            dborder.orderId=order.orderId
+            dborder.action=order.action
+            dborder.type="NORMAL",
+            dborder.symbol=order.symbol
+            dborder.ownerId=order.owner
+            dborder.qty=order.qty;
+            dborder.buyPrice=order.price
+            dborder.price=order.price
+            dborder.stopPrice=order.stopPrice
+            dborder.buyPrice=liveBuyPrice
+            dborder.sellPrice=order.price
+            dborder.margin=order.margin
+            dborder.pnl=pnl;
 
+            console.log('dborder : ',dborder);
+            await redisPublisher.lPush("orders_completed",JSON.stringify(dborder))
+            console.log('dborder pushed successfully into orders_completed');
+            
             const { bal, activeBuyOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
+
+            setOffset(offset+1)
 
             const ordersLogObj = {
                 orderId,
@@ -665,7 +739,8 @@ export async function closeOrder(requestedOrder: any) {
                 activeBuyOrders,
                 activeSellOrders,
                 activeLeverageBuyOrders,
-                activeLeverageSellOrders
+                activeLeverageSellOrders,
+                offset
             }
 
             const update = {
@@ -687,13 +762,13 @@ export async function closeOrder(requestedOrder: any) {
                 phone: activeUsers[owner]?.userData?.phone
             }
 
-            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.rPush("orders:log", JSON.stringify(ordersLogObj))
             await redisPublisher.publish("orders_executed", JSON.stringify(update))
             await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
             await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
 
             return;
-            //TODO
+            //
             // return res.status(200).json(
             //     new ApiResponse(true,`Sell order closed successfully`)
             // )
@@ -740,7 +815,7 @@ export async function closeOrder(requestedOrder: any) {
         update.message += `,retrying agian for ${requestedOrder.retryCnt} times`
         await redisPublisher.publish("orders_executed", JSON.stringify(update))
         return;
-        //TODO
+        //
 
         // return res.status(500).json(
         // new ApiResponse(false,`Failed to close the order`)
@@ -832,6 +907,7 @@ export async function openLeverageOrder(requestedOrder: any) {
 
             const buyAmt = qty * liveBuyPrice
             const leverageScale = buyAmt / margin
+            const leverage=buyAmt-margin
             if (leverageScale > maxLeverageScale) {
                 const update = {
                     orderId,
@@ -842,7 +918,7 @@ export async function openLeverageOrder(requestedOrder: any) {
                 await redisPublisher.publish("orders_executed", JSON.stringify(update))
 
                 return;
-                //TODO
+                //
                 // return res.status(400).json(
                 //     new ApiResponse(false,`This platform only supports upto ${maxLeverageScale}X leverage,reduce qty or increase margin`)
                 // )
@@ -859,7 +935,7 @@ export async function openLeverageOrder(requestedOrder: any) {
                 await redisPublisher.publish("orders_executed", JSON.stringify(update))
 
                 return;
-                //TODO
+                //
 
                 // return res.status(400).json(
                 //     new ApiResponse(false,`Reserved amout not foud for the user : ${req.user.username}`)
@@ -876,7 +952,7 @@ export async function openLeverageOrder(requestedOrder: any) {
                 await redisPublisher.publish("orders_executed", JSON.stringify(update))
 
                 return;
-                //TODO
+                //
                 // return res.status(400).json(
                 //     new ApiResponse(false,`Insufficient marin amount, current tradable balance : ${reserved}`)
                 // )
@@ -898,7 +974,7 @@ export async function openLeverageOrder(requestedOrder: any) {
                     await redisPublisher.publish("orders_executed", JSON.stringify(update))
 
                     return;
-                    //TODO
+                    //
                     // return res.status(400).json(
                     //     new ApiResponse(false,"Stoploss given by you excceed the margin coverage limit,decrease stoploss or increase margin")
                     // )
@@ -917,7 +993,8 @@ export async function openLeverageOrder(requestedOrder: any) {
                 price: liveBuyPrice,
                 margin,
                 stoploss: finalStoploss,
-                owner: userId
+                owner: userId,
+                leverage
             }
 
             leverageBuyPQS[symbol].push(order)
@@ -927,7 +1004,9 @@ export async function openLeverageOrder(requestedOrder: any) {
                 activeUsers[userId].activeLeverageBuyOrders.psuh(order)
             }
 
-              const { bal,activeBuyOrders, activeSellOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
+            const { bal,activeBuyOrders, activeSellOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
+
+            setOffset(offset+1)
 
             const ordersLogObj = {
                 orderId,
@@ -936,7 +1015,8 @@ export async function openLeverageOrder(requestedOrder: any) {
                 activeBuyOrders,
                 activeSellOrders,
                 activeLeverageBuyOrders,
-                activeLeverageSellOrders
+                activeLeverageSellOrders,
+                offset
             }
 
             const update = {
@@ -958,13 +1038,13 @@ export async function openLeverageOrder(requestedOrder: any) {
                 phone: activeUsers[owner]?.userData?.phone
             }
 
-            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.rPush("orders:log", JSON.stringify(ordersLogObj))
             await redisPublisher.publish("orders_executed", JSON.stringify(update))
             await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
             await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
 
             return;
-            //TODO
+            //
 
             // return res.status(201).json(
             //     new ApiResponse(true,`Leverage buy order placed successfully`)
@@ -1094,7 +1174,8 @@ export async function openLeverageOrder(requestedOrder: any) {
                 margin,
                 leverage: borrowedAmt,
                 stopPrice: finalStopPrice,
-                action: 'SELL'
+                action: 'SELL',
+                symbol
             }
 
             leverageSellPQS[symbol].push(newOrder)
@@ -1106,6 +1187,8 @@ export async function openLeverageOrder(requestedOrder: any) {
 
             const { bal,activeBuyOrders, activeSellOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
 
+            setOffset(offset+1)
+
             const ordersLogObj = {
                 orderId,
                 owner,
@@ -1113,7 +1196,8 @@ export async function openLeverageOrder(requestedOrder: any) {
                 activeBuyOrders,
                 activeSellOrders,
                 activeLeverageBuyOrders,
-                activeLeverageSellOrders
+                activeLeverageSellOrders,
+                offset:offset
             }
 
             const update = {
@@ -1135,7 +1219,7 @@ export async function openLeverageOrder(requestedOrder: any) {
                 phone: activeUsers[owner]?.userData?.phone
             }
 
-            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.rPush("orders:log", JSON.stringify(ordersLogObj))
             await redisPublisher.publish("orders_executed", JSON.stringify(update))
             await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
             await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
@@ -1306,7 +1390,7 @@ export async function closeLeverageOrder(requestedOrder: any) {
             const buyAmt = order.qty * liveBuyPrice
             const remainningReservedBuyAmt = reservedBuyAmt - buyAmt
             const sellAmt = order.qty * order.price
-
+            const pnl = sellAmt-buyAmt
             const netSellAmt = sellAmt + remainningReservedBuyAmt
             const netUserProfit = netSellAmt - order.leverage
             console.log(`Returned the amout borrowed from exness : ${order.leverage}`);
@@ -1333,7 +1417,30 @@ export async function closeLeverageOrder(requestedOrder: any) {
             activeLeverageSellOrders.splice(index, 1)
             completedLeverageSellOrders.push(order)
 
+            const dborder:any={}
+            dborder.orderId=order.orderId
+            dborder.action=order.action
+            dborder.type="NORMAL",
+            dborder.symbol=order.symbol
+            dborder.ownerId=order.owner
+            dborder.qty=order.qty;
+            dborder.buyPrice=order.price
+            dborder.price=order.price
+            dborder.stopPrice=order.stopPrice
+            dborder.buyPrice=liveBuyPrice
+            dborder.sellPrice=order.price
+            dborder.margin=order.margin
+            dborder.leverage=order.leverage;
+            dborder.pnl=pnl;
+
+            console.log('dborder : ',dborder);
+            await redisPublisher.lPush("orders_completed",JSON.stringify(dborder))
+            console.log('dborder pushed successfully into orders_completed');
+            
+
             const { bal,activeBuyOrders, activeSellOrders, activeLeverageBuyOrders } = activeUsers[owner]
+
+            setOffset(offset+1)
 
             const ordersLogObj = {
                 orderId,
@@ -1342,7 +1449,8 @@ export async function closeLeverageOrder(requestedOrder: any) {
                 activeBuyOrders,
                 activeSellOrders,
                 activeLeverageBuyOrders,
-                activeLeverageSellOrders
+                activeLeverageSellOrders,
+                offset
             }
 
             const update = {
@@ -1364,7 +1472,7 @@ export async function closeLeverageOrder(requestedOrder: any) {
                 phone: activeUsers[owner]?.userData?.phone
             }
 
-            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.rPush("orders:log", JSON.stringify(ordersLogObj))
             await redisPublisher.publish("orders_executed", JSON.stringify(update))
             await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
             await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))
@@ -1412,7 +1520,7 @@ export async function closeLeverageOrder(requestedOrder: any) {
             const liveSellPrice = liveData.sellPrice
             const sellAmt = liveSellPrice * order.qty
             const buyAmt = order.qty * order.price
-
+            const pnl = buyAmt-sellAmt
             const borrowedAmt = buyAmt - order.margin
             const userProfit = sellAmt - borrowedAmt
 
@@ -1443,8 +1551,34 @@ export async function closeLeverageOrder(requestedOrder: any) {
 
             completedLeverageBuyOrders.push(order)
 
+            //
 
-             const { bal,activeBuyOrders, activeSellOrders, activeLeverageSellOrders } = activeUsers[owner]
+            const dborder:any={}
+            dborder.orderId=order.orderId
+            dborder.action=order.action
+            dborder.type="NORMAL",
+            dborder.symbol=order.symbol
+            dborder.ownerId=order.owner
+            dborder.qty=order.qty;
+            dborder.buyPrice=order.price
+            dborder.price=order.price
+            dborder.stopPrice=order.stopPrice
+            dborder.buyPrice=order.price
+            dborder.sellPrice=liveSellPrice
+            dborder.margin=order.margin
+            dborder.leverage=order.leverage;
+            dborder.pnl=pnl;
+
+            console.log('dborder : ',dborder);
+            await redisPublisher.lPush("orders_completed",JSON.stringify(dborder))
+            console.log('dborder pushed successfully into orders_completed');
+            
+            //
+
+            const { bal,activeBuyOrders, activeSellOrders, activeLeverageSellOrders } = activeUsers[owner]
+
+            
+            setOffset(offset+1)
 
             const ordersLogObj = {
                 orderId,
@@ -1453,7 +1587,8 @@ export async function closeLeverageOrder(requestedOrder: any) {
                 activeBuyOrders,
                 activeSellOrders,
                 activeLeverageBuyOrders,
-                activeLeverageSellOrders
+                activeLeverageSellOrders,
+                offset
             }
 
             const update = {
@@ -1475,7 +1610,7 @@ export async function closeLeverageOrder(requestedOrder: any) {
                 phone: activeUsers[owner]?.userData?.phone
             }
 
-            await redisPublisher.lPush("orders:log", JSON.stringify(ordersLogObj))
+            await redisPublisher.rPush("orders:log", JSON.stringify(ordersLogObj))
             await redisPublisher.publish("orders_executed", JSON.stringify(update))
             await redisPublisher.rPush("notifications_email", JSON.stringify(updateEmail))
             await redisPublisher.rPush("notifications_sms", JSON.stringify(updateSms))

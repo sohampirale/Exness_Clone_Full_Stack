@@ -1,8 +1,12 @@
-import { activeUsers } from "../variables"
+import { activeUsers, setOffset } from "../variables"
 
 export async function recoverFromSnapshot(snapshot:any,recoveryOrders:any){
+  let maxOffset=0;
   for(let i=0;i<recoveryOrders.length;i++){
     const recoveryOrder = recoveryOrders[i]
+    if(maxOffset<recoveryOrder.offset){
+      maxOffset=recoveryOrder.offset
+    }
     const {owner,activeBuyOrders,activeSellOrders,activeLeverageBuyOrders,activeLeverageSellOrders}=recoveryOrder
     if(!owner){
       console.log('owner field not found');
@@ -35,5 +39,6 @@ export async function recoverFromSnapshot(snapshot:any,recoveryOrders:any){
     }
     console.log('recovered suyccessfully for user : ',activeUsers[owner]?.userData?.username);
   }
+  setOffset(maxOffset)
   return snapshot
 }

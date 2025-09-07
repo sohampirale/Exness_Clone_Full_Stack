@@ -5,6 +5,8 @@ import { activeUsers, livePrices, offset, redisSubscriber, setActiveUsers, setOf
 import { v4 as uuidv4 } from "uuid";
 import { setReqSymbols } from "./helpers/symbols";
 import { recoverFromSnapshot } from "./helpers/recovery";
+import { closeLeverageOrder, closeOrder, openLeverageOrder, openOrder } from "./handlers/order.handler";
+import { manageBuyPQS, manageLeverageBuyPQS, manageLeverageSellPQS, manageSellPQS } from "./helpers/PQmanager";
 
 export const ordersSubscriber = createClient({ url: process.env.REDIS_DB_URL! });
 export const newUsersSubscriber = createClient({ url: process.env.REDIS_DB_URL! });
@@ -66,7 +68,7 @@ async function connectAllRedisClients() {
       const to = -1;
       console.log('finding out missingOrders');
   
-      const missingOrders = await recoveryOrdersSubscriber.lRange("orders:log", from, to);
+      const missingOrders = await recoveryOrdersSubscriber.lRange("orders:log", from+1, to);
       if (!missingOrders || (Array.isArray(missingOrders) && missingOrders.length == 0)) {
         console.log('No missing orders found');
       } else {
@@ -78,13 +80,14 @@ async function connectAllRedisClients() {
   
         console.log('recoveryOrders : ',recoveryOrders);
         
-        //TODO
-        //await recover from recoveryOrders
+
         snapshot=await recoverFromSnapshot(snapshot,recoveryOrders)
         setActiveUsers(snapshot)
-        recoveryDone = true
+        console.log('recoveryOrders.length : ',recoveryOrders.length);
+        
       }
     }
+    recoveryDone = true
 
   } catch (error) {
     console.log('Failed to connect all required redis clients, ERROR : ', error);
@@ -119,24 +122,31 @@ async function executeOrders() {
 
       const orderStr = data?.element
       const order = JSON.parse(orderStr)
+      console.log('order received at engine : ',order);
+      
       const type = order.type;
       const request = order.request;
-
+      
       if (type == 'NORMAL') {
         if (request == 'OPEN') {
           //call openOrder(order) function
+          openOrder(order)
         } else if (request == 'CLOSE') {
+          closeOrder(order)
           //call closeOrder(order) function
         }
       } else if (type == 'LEVERAGE') {
         if (request == 'OPEN') {
+          openLeverageOrder(order)
           //call openLeverageOrder
         } else if (request == 'CLOSE') {
+          closeLeverageOrder(order)
           //call closeLeverageOrder
         }
+      } else {
+        console.log('invalid order data provided');
       }
 
-      const order = orderStr
       console.log('order received : ', order);
 
     } catch (error) {
@@ -154,6 +164,8 @@ async function addNewUsers() {
       const { key, element } = await newUsersSubscriber.brPop("newuser", 0)
 
       const user = JSON.parse(element)
+      console.log('user : ',user);
+      
       const { userId, userData, bal } = user
 
       if (!activeUsers[userId]) {
@@ -161,8 +173,9 @@ async function addNewUsers() {
           userData,
           bal
         }
+        console.log('new activeUsers : ',activeUsers);
       }
-
+      
     } catch (error) {
       console.log('ERROR :: addNewUsers : ', error);
     }
@@ -170,7 +183,11 @@ async function addNewUsers() {
 }
 
 setInterval(() => {
-  console.log('activeUsers : ', activeUsers);
+  console.log('activeUsers and their balances: ');
+
+  for (const [key, value] of Object.entries(activeUsers)) {
+    console.log(`username : ${value?.userData?.username}, bal.usd : ${value?.bal?.usd?.reserved}`);
+  }
 }, 5000)
 
 let temp = 0
@@ -194,7 +211,7 @@ let temp = 0
 // },3000)
 
 setInterval(() => {
-  console.log('dumping snapshot');
   activeUsers.lastExecutedOffset = offset
+  console.log('dumping snapshot : ',activeUsers);
   redisPublisher.rPush("activeusers_snapshot", JSON.stringify(activeUsers))
 }, snapshotDumpInterval)
