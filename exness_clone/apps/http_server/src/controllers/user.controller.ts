@@ -102,6 +102,7 @@ export async function userSignin(req: Request, res: Response) {
             }
         }
 
+        
         const userData={
             userData:user,
             bal,
