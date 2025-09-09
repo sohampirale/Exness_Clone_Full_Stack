@@ -6,6 +6,7 @@ import { createClient } from "redis";
 import type {IUserRequest} from "./interfaces/index.js";
 import { v4 as uuidv4 } from "uuid";
 import { defaultList } from "./constants/index.js";
+import jwt from "jsonwebtoken"
 
 const subscriber = createClient({url:process.env.REDIS_DB_URL!});
 subscriber.connect();
@@ -20,6 +21,8 @@ interface UserData{
 }
 
 const activeUsers: Map<string, UserData>  = new Map();
+const authenticatedUsers: Map<string, UserData>  = new Map();
+
 const requestedSymbols: Set<string> = new Set();
 
 function sendMarkPriceToUsers(data:any){
@@ -55,7 +58,6 @@ defaultList.forEach((symbol)=>{
   }
 })
 
-
 const wss = new WebSocketServer({ port: 3002 });
 wss.on('connection',(socket:ISocket)=>{
   
@@ -69,6 +71,7 @@ wss.on('connection',(socket:ISocket)=>{
     socket.on('message',(data:string)=>{
       try {
         const response:IUserRequest=JSON.parse(data)
+        console.log('response : ',response);
         console.log('data from client : ',response);
         if(response.request=='update_my_list'){
           const list = response.list;
@@ -90,9 +93,24 @@ wss.on('connection',(socket:ISocket)=>{
             }
           }
         } else if(response.request=='Auth'){
-          const {accessToken}=response;
-          console.log('accessToken : ',accessToken);
           
+          const {WSToken}=response;
+          console.log('WSToken : ',WSToken);
+          try {
+            const decoded = jwt.verify(WSToken,process.env.WS_ACCESS_TOKEN_SECRET!)
+            console.log('decoded : ',decoded);
+            const {id}=decoded;
+            if(!authenticatedUsers.has(id)){
+              console.log('user added to authenticatedUsers');
+              
+              authenticatedUsers.set(id,{
+                socket,
+                userData:decoded
+              })
+            }
+          } catch (error) {
+            console.log('Failed to verify WSToken');
+          }
         }
       } catch (error) {
         console.log('ERROR : ',error);

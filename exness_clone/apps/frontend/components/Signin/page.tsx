@@ -1,14 +1,17 @@
 "use client"
 import axios from "axios"
-import { useState } from "react"
+import { useState,useEffect } from "react"
 import { getSocket } from "../../lib/getSocket"
 
 export default function Signin(){
   const[identifier,setIdentifier]=useState("")
   const [password,setPassword]=useState("")
-
-  const socket= getSocket()
-  console.log('Socket : ',socket);
+  const [socket,setSocket]=useState(null)
+  useEffect(()=>{
+    const temp= getSocket()
+    setSocket(temp)
+    console.log('Socket : ',temp);
+  },[])  
 
   async function helperSignin(){
     try {
