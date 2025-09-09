@@ -12,10 +12,11 @@
   },
   "dependencies": {
     "@repo/ui": "*",
+    "axios": "^1.11.0",
+    "db": "*",
     "next": "^15.5.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "db":"*"
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@repo/eslint-config": "*",

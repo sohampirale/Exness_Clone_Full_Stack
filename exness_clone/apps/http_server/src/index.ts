@@ -3,7 +3,7 @@ dotenv.config()
 import express from 'express'
 const app = express();
 import cookieParser from "cookie-parser"
-
+import cors from "cors"
 
 //routers
 import candlesRouter from "./routes/candles.routes.js";
@@ -14,9 +14,26 @@ import { activeUsers, buyPQS, livePrices, redisSubscriber, updateRediSubscriber 
 import connectRedisDB from "./lib/connectRedisDB.js";
 import { manageBuyPQS, manageLeverageBuyPQS, manageLeverageSellPQS, manageSellPQS } from "./helpers/PQmanager.js";
 import { setReqSymbols } from "./helpers/symbols.js";
+import tokenRouter from "./routes/toke.routes.js";
 
 app.use(express.json())
 app.use(cookieParser())
+
+const allowedOrigins = ['https://urban-palm-tree-v6wx5766vxq3w696-3000.app.github.dev'];
+
+const corsOptions = {
+  origin: function (origin:string, callback:any) {
+ 
+    if (!origin||allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials:true
+};
+
+app.use(cors(corsOptions));
 
 connectRedisDB()
 .then(async(subscriber)=>{
@@ -48,6 +65,7 @@ connectRedisDB()
 app.use("/api/v1/candles",candlesRouter)
 app.use("/api/v1/user",userRouter)
 app.use("/api/v1/order",orderRouter)
+app.use("/api/v1/token",tokenRouter)
 
 app.get('/',(req,res)=>{
     return res.send("Hello World from http-server")

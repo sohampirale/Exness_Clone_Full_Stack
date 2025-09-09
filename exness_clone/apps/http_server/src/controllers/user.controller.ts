@@ -62,6 +62,8 @@ export async function userSignup(req: Request, res: Response) {
                 })
             )
     } catch (error) {
+        console.log('ERROR :: ',error);
+        
         return res.status(500).json(
             new ApiResponse(true, "Failed to signup the user")
         )

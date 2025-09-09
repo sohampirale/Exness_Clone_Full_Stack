@@ -56,10 +56,9 @@ defaultList.forEach((symbol)=>{
 })
 
 
-
-
 const wss = new WebSocketServer({ port: 3002 });
 wss.on('connection',(socket:ISocket)=>{
+  
     socket.id=uuidv4()    
     console.log('New client connected at websocket_server');
     activeUsers.set(socket.id,{
@@ -90,16 +89,18 @@ wss.on('connection',(socket:ISocket)=>{
               })
             }
           }
+        } else if(response.request=='Auth'){
+          const {accessToken}=response;
+          console.log('accessToken : ',accessToken);
+          
         }
       } catch (error) {
         console.log('ERROR : ',error);
       }
 
     })
+
+    socket.on("disconnection",()=>{
+      console.log('Disconnected');
+    })
 })
-
-// setInterval(()=>{
-//   console.log('activeUsers : ',activeUsers);
-//   console.log('requestedSymbols : ',requestedSymbols);
-
-// },5000)
