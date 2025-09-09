@@ -2,9 +2,23 @@ import { createClient } from "redis";
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient()
 import cron from "node-cron"
+const completedOrdersSubscriber  = createClient({ url: process.env.REDIS_DB_URL });
 const worker = createClient({ url: process.env.REDIS_DB_URL });
-await worker.connect();
 import Queue from "p-queue";
+
+async function connectRedisClients(){
+    try {
+        await worker.connect();
+        await completedOrdersSubscriber.connect()
+        console.log('all redis clients connected successfully');
+    } catch (error) {
+        console.log('failed to connect all redis clients');
+        console.log('exiting gracefully');
+        process.exit(1)
+    }
+}
+
+connectRedisClients()
 
 const queue = new Queue({ concurrency: 1 });
 
@@ -96,7 +110,6 @@ async function dumpIntoTimescaleDB() {
 console.log('current time : ',new Date().toISOString());
 
 async function refresh1m(){
-  console.log("Every 1 minute:", new Date().toISOString());
     try {
         await prisma.$executeRawUnsafe(`
         CALL refresh_continuous_aggregate('candles_1m', (NOW() - INTERVAL '5 minutes')::timestamp, NOW()::timestamp);
@@ -134,17 +147,49 @@ async function refresh1h(){
     }
 }
 
+async function storeCompletedOrders(){
+    if(!completedOrdersSubscriber.isOpen){
+        return;
+    }
+    const len = await completedOrdersSubscriber.lLen("orders_completed")
+    console.log('length of orders_completed : ',len);
+    const storeOrdersQueries=[]
+    for(let i=0;i<len;i++){
+        try {
+            const orderStr = await completedOrdersSubscriber.rPop("orders_completed")
+            const order = JSON.parse(orderStr)
+            console.log('order thats rPopped : ',order);
+            storeOrdersQueries.push(order)
+        } catch (error) {
+            
+        }
+    }
+    try {
+        console.log('length of storeOrdersQueries : ',storeOrdersQueries.length);
+        const response = await prisma.order.createMany({
+            data:storeOrdersQueries
+        })
+        console.log('response after storing completed orders in db : ',response);
+        
+    } catch (error) {
+        console.log('Failed to stoire completed orders in db : ',error);
+    }
+}
+
 // 30 seconds
 cron.schedule("0,30 * * * * *",()=>{
+    if(!worker.isOpen)return;
     console.log('30 seconds');
     queue.add(()=>dumpIntoTimescaleDB())   
 })
 
 // 1 minute
 cron.schedule("0 * * * * *", () => {
+    console.log('1 minute');
     setTimeout(()=>{
         queue.add(() => refresh1m());
     },500)
+    storeCompletedOrders()
 });
 
 // 5 minutes
@@ -160,15 +205,3 @@ cron.schedule("0 0 * * * *", () => {
         queue.add(() => refresh1h());
     },500)
 });
-
-async function queryBitcoinPerminute(){
-    try {
-
-        const response = await prisma.candles_1m.findMany()
-
-    } catch (error) {
-        console.log('Failed to retrive bitcoin 1m : ',error);
-        
-    }
-}
-queryBitcoinPerminute()

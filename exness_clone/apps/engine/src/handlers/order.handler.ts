@@ -149,7 +149,6 @@ export async function openOrder(requestedOrder: any) {
 
 
             const newOrder = {
-                offset:'my offset',
                 orderId,
                 action: 'BUY',
                 symbol,
@@ -158,8 +157,6 @@ export async function openOrder(requestedOrder: any) {
                 stoploss,
                 owner: owner,
             }
-
-
 
 
             if (!activeUsers[owner].activeBuyOrders) {
@@ -1022,7 +1019,7 @@ export async function openLeverageOrder(requestedOrder: any) {
             const update = {
                 orderId,
                 owner,
-                message: NOTIFICATION_MESSAGE.SUCCESS_CLOSE_ORDER
+                message: NOTIFICATION_MESSAGE.SUCCESS_CLOSE_ORDER,
             }
 
             const updateEmail = {
