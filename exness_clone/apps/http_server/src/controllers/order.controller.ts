@@ -634,7 +634,7 @@ export async function closeLeverageOrder(req: ExpressRequest, res: Response) {
     const order ={
         orderId,
         action,
-        type:'NORMAL',
+        type:'LEVERAGE',
         request:"CLOSE",
         owner:userId
     }

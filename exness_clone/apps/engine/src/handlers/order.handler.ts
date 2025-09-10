@@ -998,7 +998,7 @@ export async function openLeverageOrder(requestedOrder: any) {
             if (!activeUsers[userId].activeLeverageBuyOrders) {
                 activeUsers[userId].activeLeverageBuyOrders = [order]
             } else {
-                activeUsers[userId].activeLeverageBuyOrders.psuh(order)
+                activeUsers[userId].activeLeverageBuyOrders.push(order)
             }
 
             const { bal,activeBuyOrders, activeSellOrders, activeLeverageBuyOrders, activeLeverageSellOrders } = activeUsers[owner]
@@ -1019,7 +1019,7 @@ export async function openLeverageOrder(requestedOrder: any) {
             const update = {
                 orderId,
                 owner,
-                message: NOTIFICATION_MESSAGE.SUCCESS_CLOSE_ORDER,
+                message: NOTIFICATION_MESSAGE.SUCCESS_OPEN_ORDER,
             }
 
             const updateEmail = {
@@ -1318,6 +1318,8 @@ export async function openLeverageOrder(requestedOrder: any) {
  * 13.return response
  */
 export async function closeLeverageOrder(requestedOrder: any) {
+    console.log('inside closeLeverageOrde');
+    
     const { action, orderId, owner } = requestedOrder;
     try {
         if (!orderId) {

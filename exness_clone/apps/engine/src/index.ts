@@ -140,6 +140,8 @@ async function executeOrders() {
           openLeverageOrder(order)
           //call openLeverageOrder
         } else if (request == 'CLOSE') {
+          console.log('calling closeLeverageOrder');
+          
           closeLeverageOrder(order)
           //call closeLeverageOrder
         }
