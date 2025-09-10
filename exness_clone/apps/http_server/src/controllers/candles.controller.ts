@@ -43,6 +43,8 @@ export async function getCandles(req:Request,res:Response){
         )
         
     } catch (error) {
+        console.log('ERROR :: getCandles : ',error);
+        
         return res.status(500).json(
             new ApiResponse(false,"Failed to retrive candles")
         )

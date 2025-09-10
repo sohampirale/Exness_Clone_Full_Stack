@@ -42,10 +42,10 @@ async function dumpIntoTimescaleDB() {
     const len = await worker.lLen("dump_timescaleDB")
     console.log('current length of the queue : ', len);
 
-    let cnt = len;
-    // if (len < 30) {
-        // cnt = len;
-    // }
+    let cnt = 30;
+    if (len < 30) {
+        cnt = len;
+    }
     const finalData = {}
     for (let i = 0; i < cnt; i++) {
         const popped = await worker.lPop("dump_timescaleDB")

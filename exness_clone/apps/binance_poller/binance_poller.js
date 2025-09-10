@@ -36,8 +36,8 @@ ws.on("message",async (msg) => {
 
     publisher.publish(symbol,JSON.stringify({
       markPrice,
-      buyPrice:generateIncreasedBuyPrice(markPrice),
-      sellPrice:generateDecreasedSellPrice(markPrice)
+      buyPrice:markPrice+20,
+      sellPrice:markPrice
     }))
 
     DBData[symbol]=markPrice

@@ -14,9 +14,12 @@
     "@repo/ui": "*",
     "axios": "^1.11.0",
     "db": "*",
+    "lucide-react": "^0.543.0",
     "next": "^15.5.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "rechart": "^0.0.1",
+    "recharts": "^3.2.0"
   },
   "devDependencies": {
     "@repo/eslint-config": "*",
