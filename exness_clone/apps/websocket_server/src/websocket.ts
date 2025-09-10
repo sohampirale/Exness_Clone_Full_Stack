@@ -1,3 +1,4 @@
+
 import dotenv from "dotenv"
 dotenv.config()
 
@@ -26,7 +27,7 @@ const authenticatedUsers: Map<string, UserData>  = new Map();
 const requestedSymbols: Set<string> = new Set();
 
 function sendMarkPriceToUsers(data:any){
-  console.log('inside sendMarkPriceToUsers data : ',data);
+  // console.log('inside sendMarkPriceToUsers data : ',data);
   
   const {markPrice,symbol,buyPrice,sellPrice}=data;
 
@@ -40,21 +41,60 @@ function sendMarkPriceToUsers(data:any){
   for(const [socketId,userData] of activeUsers){
     const {list,socket}=userData;
     if(list.includes(symbol)){
-      console.log('sending livePrice of ',symbol);
-      socket.send(responseStr)
+      // console.log('sending livePrice of ',symbol);
+      // socket.send(responseStr)
     }
   }
 }
 
-defaultList.forEach((symbol)=>{
-  if(!requestedSymbols.has(symbol)){
-    requestedSymbols.add(symbol)
-    subscriber.subscribe(symbol,(dataStr)=>{
-        const data = JSON.parse(dataStr)
-        console.log('data received from pub-sub for ',symbol,' is : ',data);
-        data.symbol=symbol
-        sendMarkPriceToUsers(data)
-      })
+subscriber.pSubscribe("*", (dataStr, channel) => {
+  try {
+    const data =JSON.parse(dataStr)
+    if(!data.sellPrice){
+      return;
+    }
+    // console.log('msg received on channel : ',channel,' msg is : ',data);
+    data.symbol=channel
+    const obj={
+      type:'liveData',
+      data
+    }  
+    const objStr=JSON.stringify(obj)
+    for(const [socketId,obj] of activeUsers){
+      const {socket} = obj;
+      socket.send(objStr)
+    }
+  } catch (error) {
+    
+  }
+});
+
+
+// defaultList.forEach(async(symbol)=>{
+//   if(!requestedSymbols.has(symbol)){
+//     requestedSymbols.add(symbol)
+//     await subscriber.subscribe(symbol,(dataStr)=>{
+//         const data = JSON.parse(dataStr)
+//         // console.log('data received from pub-sub for ',symbol,' is : ',data);
+//         data.symbol=symbol
+//         sendMarkPriceToUsers(data)
+//       })
+//   }
+// })
+
+subscriber.subscribe("orders_executed",(dataStr)=>{
+  const order = JSON.parse(dataStr)
+  const obj={
+    type:"notification",
+    data:order
+  }
+  console.log('Msg receivd on orders_executed : ',order);
+  const {owner}=order
+  if(owner){
+    if(authenticatedUsers.has(owner)){
+      const {socket}=authenticatedUsers.get(owner);
+      socket.send(JSON.stringify(obj))
+    }
   }
 })
 

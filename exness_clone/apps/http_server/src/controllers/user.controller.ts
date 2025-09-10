@@ -57,9 +57,7 @@ export async function userSignup(req: Request, res: Response) {
                 httpOnly: true, // prevents JS access
             })
             .status(201).json(
-                new ApiResponse(true, "User signup successfully",{
-                    accessToken
-                })
+                new ApiResponse(true, "User signup successfully")
             )
     } catch (error) {
         console.log('ERROR :: ',error);
@@ -124,9 +122,7 @@ export async function userSignin(req: Request, res: Response) {
             httpOnly: true, 
         })
         .status(200).json(
-            new ApiResponse(true, "Login successfull",{
-                accessToken
-            })
+            new ApiResponse(true, "Login successfull")
         )
         
     } catch (error) {

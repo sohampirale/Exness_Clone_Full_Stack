@@ -4,7 +4,7 @@
   "description": "",
   "main": "src/websocket.js",
   "scripts": {
-    "dev": "concurrently \"tsc -w\" \"nodemon dist/websocket.js\""
+    "dev": "bun run src/websocket.ts"
   },
   "keywords": [],
   "type": "module",

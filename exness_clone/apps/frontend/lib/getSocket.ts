@@ -3,6 +3,8 @@ import axios from "axios";
 // socket.ts
 let socket: WebSocket | null = null;
 let WSToken: any;
+export const livePrices=new Map()
+
 export async function getSocket() {
 
   if (!socket) {
@@ -27,6 +29,19 @@ export async function getSocket() {
 
     };
 
+    socket.onmessage=(event)=>{
+      const dataStr=event.data
+      const data = JSON.parse(dataStr)
+      const {type}=data;
+      if(type=='liveData'){
+        const {data:liveData}=data
+        const {symbol}=liveData;
+        livePrices.set(symbol,liveData)        
+      } else if(type=='notification'){
+        console.log('notification msg received from websocket server : ',data);
+      }
+    }
+
     socket.onclose = () => {
       console.log("❌ WebSocket closed, retrying in 2s...");
       setTimeout(() => getSocket(), 2000);
@@ -34,7 +49,6 @@ export async function getSocket() {
 
     socket.onerror = (err) => {
       console.error("⚠️ WebSocket error:", err);
-      socket?.close();
     };
   }
 
@@ -52,3 +66,13 @@ export async function getSocket() {
 
   return socket;
 }
+
+export function getLivePrices(){
+  return livePrices
+}
+
+setInterval(()=>{
+  console.log('livePrices : ',livePrices);
+  
+  console.log('livePrices.size : ',livePrices.size);
+},5000)

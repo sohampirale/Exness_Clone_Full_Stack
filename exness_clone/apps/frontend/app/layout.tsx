@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 
 
 export default function RootLayout({ children }) {
-  const socket = getSocket()
+  console.log('inside layout.tsx')
   return (
     <html lang="en">
       <body>{children}</body>

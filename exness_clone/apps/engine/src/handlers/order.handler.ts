@@ -138,7 +138,7 @@ export async function openOrder(requestedOrder: any) {
                 await redisPublisher.publish("orders_executed", JSON.stringify(update))
                 await redisPublisher.lPush("notifications_sms", JSON.stringify(updateSMS))
                 await redisPublisher.lPush("notifications_email", JSON.stringify(updateSMS))
-
+                return;
 
                 //
                 // return res.status(400).json(

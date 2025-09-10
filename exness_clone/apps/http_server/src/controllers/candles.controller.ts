@@ -13,7 +13,8 @@ export async function getCandles(req:Request,res:Response){
                 new ApiResponse(false,"Invalid search queries provided")
             )
         }
-        if(duration=='1m')model=prisma.candles_1m;
+        
+        if(duration=='1m'){model=prisma.candles_1m;}
         else if(duration=='5m')model=prisma.candles_5m;
         else if(duration=='1h')model=prisma.candles_1h;
         else {
